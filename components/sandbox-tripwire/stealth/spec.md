@@ -33,8 +33,9 @@ no host side effects, and `plan` enforces the parts it can check.
   unwatched. On a host without a metadata service, the metadata decoy is reached
   through routing or address translation, never an interface address any user could
   list, and its backend runs in a network namespace no host process can reach directly.
-- The dormant account looks used: a login shell and ordinary home contents with
-  plausible timestamps. Its decoys' access times stay at materialization, since any
+- The dormant account looks used: a login shell, ordinary home contents with plausible
+  timestamps created together with the decoys, and plausible login records (`lastlog`,
+  `wtmp`). Its decoys' access times stay at materialization, since any
   read or timestamp change is a hit; an attacker comparing access times can notice
   this, an accepted residual risk.
 - Decoys fit the platform: a metadata decoy only where DMI and cloud identity say the
@@ -83,8 +84,8 @@ no host side effects, and `plan` enforces the parts it can check.
   `/proc`. A host-root intruder can still dump sensor state,
   such as an inode set, so it also covers ordinary sensitive files, and decoy matching
   happens off-host in `evaluate`.
-- No two hosts share a decoy layout or decoy credentials: each host has its own
-  `deployment_id`, so agents that pool what they learn across hosts cannot use one
+- No two hosts share decoy credentials, and with relocation no two share a layout: each
+  host has its own `deployment_id`, so agents that pool what they learn across hosts cannot use one
   host's decoys to recognize another's.
 - Every interaction an attacker can make with a decoy or its companions is a hit,
   including a metadata read (`stat`), so a decoy cannot be inspected safely before it

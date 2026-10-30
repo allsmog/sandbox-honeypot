@@ -149,7 +149,10 @@ Request fields: `operation` (`plan`); `deployment_id`; `runtime` (`gvisor`, `cap
 (`linux-host` or `kubernetes-node`); `metadata_service` (boolean: whether the host has
 a real instance metadata service at `169.254.169.254`); `include` (opt-in catalog
 IDs); optional `seed`; `context`;
-`sandbox_gateway` (address or null); `exposure`; `occupied`; `path_aliases`;
+`sandbox_gateway` (the host-side address at which sandbox traffic to its gateway
+arrives, never an unspecified address, or null; user-space stacks that forward the
+gateway to host loopback, such as slirp4netns, pasta, or gvproxy, need that
+forwarding disabled, or null, since host tools use loopback SSH); `exposure`; `occupied`; `path_aliases`;
 `exclude`; `relocate`; `custom_decoys`; `epochs`; `provided_credentials`;
 `retired_canaries`; and `cover_files`.
 

@@ -63,7 +63,7 @@ and otherwise the `carry` of the result for the immediately preceding window. It
 exactly `window_end` (that window's `end`) and:
 
 - `sequences`: objects with exactly `source`, `sensor_instance`, `highest`,
-  `missing` (at most 16 objects with exactly `from` and `to`, the newest kept), and
+  `missing` (at most 16 objects with exactly `from` and `to`, those with the highest `to` kept, in ascending `from`), and
   `last_received`, one per instance, keeping the 4 most recently received instances
   of each declared source (ties by instance);
 - `last_seen`: objects with exactly `source` and `received`, for declared sources
@@ -147,15 +147,18 @@ and `sources` (two or more distinct declared sources). Two hits **corroborate** 
 other when they are on the same decoy from different listed sources and their `time`
 values are at most `window_seconds` apart. Each accepted non-`credential-use` hit,
 whatever its outcome, on a listed decoy from a listed source needs a corroborating hit
-from every other listed source, among this batch's hits and the carried `recent_hits`.
+from every other listed source, so listed sources MUST observe every action that can
+hit the decoy (a fanotify or audit source, which misses `stat` and `connect`, cannot be
+listed beside one that sees them), among this batch's hits and the carried `recent_hits`.
 Let `H` be `window_seconds` plus the largest `max_delay_seconds` of the decoy's listed
 sources, since a slower source's report arrives later. A hit missing one stays in
 `pending` while it was received at most `H` before `window.end`, and is judged again in
 each later batch; otherwise it is **uncorroborated** (`event_id`, `decoy_id`, and
 ascending `missing_sources`), as is a pending hit in a batch whose `corroboration` is
 null or no longer lists its decoy; its `missing_sources` are recomputed against the
-current listing. `recent_hits` carries the hits on listed decoys
-received at most `H` before `window.end`.
+current listing. `recent_hits` carries the accepted non-`credential-use` hits on listed decoys from their
+listed sources received at most `H` before `window.end`; carried hits that become
+uncorroborated are ordered by `time`, then event ID.
 
 ## Tamper lists and ordering
 

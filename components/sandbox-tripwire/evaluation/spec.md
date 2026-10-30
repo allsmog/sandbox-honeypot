@@ -30,7 +30,7 @@ equal only when both fields are, so a reused PID never matches.
 | `harness_signatures` | array | See `attribution/spec.md`. |
 | `sources`, `probe`, `corroboration`, `authentication`, `sensor_keys`, `max_clock_skew_seconds`, `carry` | | See `telemetry/spec.md`; `sensor_keys` is optional. |
 | `window` | object | Exactly `start` and `end` timestamps, `end` after `start`. It contains the events **received** from `start` (inclusive) to `end` (exclusive). |
-| `decoy_inodes` | array | Objects with exactly `decoy_id` (a placed planted path decoy), `path` (its canonical location or one of its `companion_paths`), `device` and `inode` (decimal strings without leading zeros of the `st_dev` and `st_ino` values `stat(2)` returns, which can exceed 2^53) of the decoys as currently materialized; sensors report the same encoding, including the anonymous devices of btrfs subvolumes and overlay filesystems. Inode numbers are reused once freed, so operators MUST record new entries at every boot (device numbers of `tmpfs`, btrfs, overlay, and device-mapper filesystems change across boots) every rotation, and whenever a listener re-creates its socket (socket activation keeps it
+| `decoy_inodes` | array | Objects with exactly `decoy_id` (a placed planted path decoy), `path` (exactly its `canonical_location` or one of its `companion_paths`), `device` and `inode` (decimal strings without leading zeros of the `st_dev` and `st_ino` values `stat(2)` returns, which can exceed 2^53) of the decoys as currently materialized; sensors report the same encoding, including the anonymous devices of btrfs subvolumes and overlay filesystems. Inode numbers are reused once freed, so operators MUST record new entries at every boot (device numbers of `tmpfs`, btrfs, overlay, and device-mapper filesystems change across boots) every rotation, and whenever a listener re-creates its socket (socket activation keeps it
 stable) and start a new batch there. Each device-inode pair names one path. After a rotation or socket re-creation within one boot, a path may also keep its previous entry, different from the current one, only until events from before the change can no longer arrive (its sources' `max_delay_seconds`), and never across a boot, since freed inode numbers and device numbers are reused. |
 | `events` | array | Host sensor observations. |
 
@@ -67,7 +67,7 @@ large to submit.
 | `target_fs` | object or null | Exactly `type` (filesystem type, such as `proc` or `cgroup`) and `path` (path within that filesystem, without a leading `/`). |
 | `target_digest` | string or null | For `exec`, the SHA-256 of the file named by the exec (for a script, the script), computed from the exec'd file object at exec time (such as with `bpf_ima_file_hash` with IMA's hash algorithm set to SHA-256), or null when that is unavailable, never hashed later by path; a null digest never matches, so `helper-exec` needs it. |
 | `written_digest` | string or null | For `write`, the SHA-256 of the bytes passed to that one `write(2)` call. |
-| `actor` | object | Exactly `process` (identity or null), `ancestry` (identities of the creation chain recorded when each process was created, parent first, each the task that created the next even under `CLONE_PARENT`, including kernel threads and unaffected by later reparenting), `helper_depth` (0 when the kernel created this process to run a user-mode helper through `call_usermodehelper`, never for init or kernel threads; `n` when its nearest such ancestor is its `n`th; otherwise null), `executable` (the path of the file the process exec'd, reported like a path target, or null when only a `/proc/PID/root` form exists; for a script run directly, the script), `executable_digest` (64 lowercase hex SHA-256 of that file, computed from the exec'd file object at exec time, or null), `uid` (effective user ID in the initial user namespace, or null), `comm` (string or null), `environment_names` (array of strings or null), and `sandbox_id` (string or null). |
+| `actor` | object | Exactly `process` (identity or null), `ancestry` (identities of the creation chain recorded when each process was created, parent first, each the task that created the next even under `CLONE_PARENT`, including kernel threads, ending at PID 1 or `kthreadd`, and unaffected by later reparenting), `helper_depth` (0 when the kernel created this process to run a user-mode helper through `call_usermodehelper`, never for init or kernel threads; `n` when its nearest such ancestor is its `n`th; otherwise null), `executable` (the path of the file the process exec'd, reported like a path target, or null when only a `/proc/PID/root` form exists; for a script run directly, the script), `executable_digest` (64 lowercase hex SHA-256 of that file, computed from the exec'd file object at exec time, or null), `uid` (effective user ID in the initial user namespace, or null), `comm` (string or null), `environment_names` (array of strings or null), and `sandbox_id` (string or null). |
 
 Actions are `stat` (also `access`, `readlink`, and extended-attribute reads), `open`
 (read-only), `open-write`, `read`, `write`, `truncate`, `exec`, `delete`, `rename`,
@@ -82,7 +82,8 @@ A mount, remount, or `fsconfig` in any mount namespace that sets a cgroup
 `release_agent` option (all reach the `fs_context_parse_param` hook, observed by a kernel-function probe or a
 BPF-LSM program returning `-ENOPARAM`, since returning 0 there consumes the option) is reported as a
 `write` with `target_fs` `{"type": "cgroup", "path": "release_agent"}`
-and `written_digest` the SHA-256 of the option's value. A successful `execve` yields
+and `written_digest` the SHA-256 of the option's value, with the mount point as
+`target`, or `/` when there is none. A successful `execve` yields
 one `exec` event, whatever interpreters it passes through.
 Sensors MUST observe through LSM or kernel-function hooks on the object (such as
 `security_file_open`, `security_inode_getattr`, `security_unix_stream_connect` for Unix
@@ -126,9 +127,10 @@ root filesystems). Only an object reachable by no such path is reported as
 `/proc/PID/root` (PID being the actor's) followed by its path within the actor's root,
 which no decoy location equals, so only an inode binding matches it, and a container's
 own `/root/.aws` never does. A refused lookup is reported the same way, through the
-mounts its walk crossed. Sensors MUST NOT report a connection to a loopback address
-from a socket outside the initial network namespace, which cannot reach the host's
-loopback. A `target` MUST be, or the event is rejected at `/target`:
+mounts its walk crossed. Connect hooks MUST NOT report a connection from a socket outside the initial network
+namespace to the loopback of that socket's own namespace, which is not the host's;
+arrival sources report every connection that reaches a host loopback listener, such
+as through `route_localnet` or address translation. A `target` MUST be, or the event is rejected at `/target`:
 the empty string for `heartbeat`; 64 lowercase hexadecimal characters for
 `credential-use`; a path or an address endpoint for `connect`; and otherwise a string
 starting with `/`, which is matched as a path even when truncated.
@@ -146,7 +148,8 @@ rejects that event at that object, so one forged event cannot void a batch. Acce
 `duplicate_event_ids`, and each of their alert IDs gains `#` and the event's index.
 Rejected events take no part in this, so a forged copy cannot rename a real alert. An
 element of `events` that is not an object, nests deeper than 8 levels, or holds a
-number outside the integer range is rejected at that value; collectors quarantine and
+number no IEEE double can represent (such as `1e400`) is rejected at that value (other
+out-of-range values follow the rules for core and detail fields); collectors quarantine and
 report events over 20 KiB instead of batching them.
 
 ## Hits
@@ -199,9 +202,11 @@ writing an unexpected value still alerts. `credential-use` and `helper-exec` hit
 never probe hits or suppressed, nor is a hit whose actor is a sandbox's runtime or
 harness process, descends from one, or has a non-null `helper_depth`, nor one whose
 `actor.process`, `ancestry`, or `helper_depth` was repaired, nor one whose
-`actor.environment_names` was repaired or contains `LD_PRELOAD` or `LD_AUDIT`, which
-make the dynamic loader run other code inside a trusted executable (sensors take the
-names from the new image at exec, keeping these first when truncating). Every other hit is an alert.
+`actor.environment_names` was repaired or contains a name that makes a trusted
+executable or its script's interpreter load other code: `LD_PRELOAD`, `LD_AUDIT`,
+`LD_LIBRARY_PATH`, `GCONV_PATH`, `PYTHONPATH`, `PYTHONHOME`, `PERL5OPT`, `PERL5LIB`,
+`RUBYOPT`, `RUBYLIB`, `NODE_OPTIONS`, `BASH_ENV`, or `ENV` (sensors take the names from
+the new image at exec, keeping these first when truncating). Every other hit is an alert.
 
 ## Result
 

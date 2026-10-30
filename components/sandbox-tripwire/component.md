@@ -130,7 +130,8 @@ decoys. It assumes:
   alert. Keep suppressions few and bound to an executable digest, user, and, for
   kernel interfaces, the expected written value, and never suppress a shell or
   general-purpose interpreter, which would trust every script it runs, or a setuid,
-  setgid, or file-capability executable, which any user could run as its owner.
+  setgid, or file-capability executable, which any user could run as its owner; the
+  same applies to the probe.
   Likewise expected helpers are matched by file, not arguments: a kernel write
   primitive that points a helper setting at an expected helper with hostile arguments
   (such as `kmod insmod`) is caught only if it writes a kernel interface.
@@ -200,7 +201,8 @@ checked in this order, each reported at the field named:
 8. A digest repeats among current and retired canaries (the later digest field).
 9. Any other constraint between fields fails, such as a location of the wrong type for
    its decoy or kind, a `credential_format` that does not fit `kind`, a
-   `decoy_inodes` path outside its decoy's footprint, repeated corroboration sources,
+   `decoy_inodes` path other than its decoy's canonical location or companions, an
+   unspecified `sandbox_gateway`, repeated corroboration sources,
    empty harness signature arrays, or a null suppression `executable` with a nonzero
    `uid` (the later field in field order).
 10. `watch` is inconsistent: a repeated decoy ID, an invalid alias set, a
