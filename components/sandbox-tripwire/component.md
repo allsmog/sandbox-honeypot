@@ -143,7 +143,8 @@ receives the complete JSON argument array in one command-line token, so a reques
 fit in one argument (128 KiB on Linux): operators split a long period into consecutive
 `evaluate` batches joined by `carry` (`telemetry/spec.md`). Event limits keep each
 event under 20 KiB (`evaluation/spec.md`), so a request whose other fields stay under
-100 KiB can always carry one. The result is one JSON
+100 KiB can always carry one. Requests escape strings only as RFC 8785 does, the
+encoding these sizes assume. The result is one JSON
 object written to standard output. An operator MUST treat a failed, rejected, or
 skipped evaluation as an alert, since an attacker may try to make evaluation fail.
 Because the request travels on a command line, `plan` and `evaluate` MUST run on a
@@ -166,7 +167,8 @@ checked in this order, each reported at the field named:
 1. The seed, or the sensor keys when authentication is required, are absent,
    duplicated, too short, or do not cover every declared source (`/seed` or
    `/sensor_keys`).
-2. `window.end` is not after `window.start` (`/window/end`).
+2. `window.end` is not after `window.start` (`/window/end`), or `carry` is not null
+   and its `window_end` differs from `window.start` (`/window/start`).
 3. A value that must be unique repeats: a decoy named twice in `include`, `exclude`,
    `relocate`, `epochs`, `provided_credentials`, `corroboration.decoys`, or
    `ignore_stat`, a source, sandbox ID, process identity, harness ID, or
@@ -174,15 +176,17 @@ checked in this order, each reported at the field named:
    as `suppressions`, `decoy_inodes`, and `retired_canaries`, may name a decoy more
    than once.
 4. A reference names an unknown decoy or one of the wrong kind or state, a
-   corroboration source is undeclared, or `value_digest` is null for a kernel
-   interface or set for another decoy (that field).
-5. `context.cluster_name` or `context.api_server` is null although a
-   `kubeconfig-token` decoy is included and not excluded, or set although none is
-   (that field).
+   corroboration source is undeclared, `value_digest` is null for a kernel interface
+   or set for another decoy, or a retired canary's `technique` is null for a former
+   custom decoy or set for a current one (that field).
+5. `context.cluster_name`, `context.api_server`, or `context.cluster_ca_data` is null
+   although a `kubeconfig-token` decoy is included and not excluded, or set although
+   none is (that field).
 6. The alias set is invalid (the later of the two overlapping entries, at its `alias`
    if that overlaps, otherwise its `target`).
-7. A relocation, custom decoy, or cover file collides with another item (the later
-   item's `location` or `path`).
+7. The footprints of two relocated or custom decoys collide, or two items of one
+   footprint do (the later relocation's or custom decoy's `location`, or the later
+   cover file's `path`).
 8. A digest repeats among current and retired canaries (the later digest field).
 
 Identifier strings (`deployment_id`, `sandbox_id`, `event_id`, `source`,
@@ -237,7 +241,7 @@ source the scenario mentions, signed by the sensor (by the collector for
 sequences number each source and instance's events 1, 2, … in index order, and
 unnamed events have IDs `u0`, `u1`, … by index. `context` is host name `ci-17`,
 dormant user `deploy`, AWS region `us-east-1`, and, when a `kubeconfig-token` decoy is included, cluster `prod-east` with
-API server `10.0.0.1:6443` (otherwise null).
+API server `10.0.0.1:6443` and CA data `Q0E=` (otherwise null).
 
 ### Requirement: Detection is invisible to the attacker
 

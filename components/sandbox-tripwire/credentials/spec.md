@@ -19,7 +19,7 @@ watched decoys have no material and a null `canary_digest`.
 | --- | --- | --- | --- | --- |
 | `aws-access-key` | provided | none; the operator holds the key | the access key ID | a real IAM access key whose policy denies everything, in the host's own account (so the key's account matches the host), whose audit trail including denied calls feeds `evaluate`. A key ID that exists in no account is never logged. |
 | `ssh-ed25519` | derived | `private_key_seed`: lowercase hex of `derive("ed25519")`, the RFC 8032 private key; `public_key`: `ssh-ed25519 `, the standard base64 of the SSH public key blob (length-prefixed `ssh-ed25519`, then the length-prefixed 32-byte public key), a space, `OWNER@{host_name}`; `fingerprint` | `fingerprint`: `SHA256:` and the unpadded standard base64 of SHA-256 over that blob | OpenSSH servers at `LogLevel VERBOSE` on hosts an intruder would try, or an SSH honeypot. |
-| `kubeconfig-token` | derived | `token`: map each of the first 22 bytes of `derive("token")` to `0123456789abcdefghijklmnopqrstuvwxyz` by value modulo 36; the first 6 characters, `.`, and the remaining 16. Also `cluster` (`context.cluster_name`), `server` (`https://` and `context.api_server`), and `user` (`OWNER`). | `token` | a token authentication webhook or authenticating proxy that reports presented tokens; API server audit logs never contain tokens. |
+| `kubeconfig-token` | derived | `token`: map each of the first 22 bytes of `derive("token")` to `0123456789abcdefghijklmnopqrstuvwxyz` by value modulo 36; the first 6 characters, `.`, and the remaining 16. Also `cluster` (`context.cluster_name`), `server` (`https://` and `context.api_server`), `certificate_authority_data` (`context.cluster_ca_data`, without which clients refuse the server before sending the token), and `user` (`OWNER`). | `token` | a token authentication webhook or authenticating proxy that reports presented tokens; API server audit logs never contain tokens. |
 
 `OWNER` is the account a real file at that location would belong to: `root` beneath
 `/root`, `NAME` beneath `/home/NAME`, and otherwise `dormant_user`, or `root` when
@@ -45,9 +45,13 @@ from a decoy a later plan no longer places, is still a canary, so it stays watch
 `watch.retired` lists, in decoy order: for each included derived decoy with epoch `e`,
 the digests of epochs 0 to `e - 1`, and also of epoch `e` when the decoy is not placed;
 for each included `aws-access-key` decoy that is not placed, its provided digest; then
-each `retired_canaries` entry (objects with exactly `decoy_id`, naming a catalog or
-custom decoy, and `canary_digest`) in request order. Each retired entry has exactly
-`decoy_id`, `kind` and `technique` (that decoy's), `epoch` (null when not derived), and
+each `retired_canaries` entry (objects with exactly `decoy_id`, `technique`, and
+`canary_digest`) in request order. Its `decoy_id` names a catalog or custom decoy with
+a null `technique`, or a former custom decoy (an identifier of the custom form that is
+neither) with that decoy's technique, so credentials of a removed decoy stay watched.
+To rotate a provided key, keep the old deny-all key in IAM, so its use is still
+logged, and list its digest here. Each retired entry has exactly `decoy_id`, `kind`
+(`credential-file`), `technique` (the decoy's), `epoch` (null when not derived), and
 `canary_digest`. Every current and retired digest MUST be unique; otherwise the
 request is invalid.
 
@@ -55,9 +59,10 @@ request is invalid.
 
 `context` grounds decoys in the host's own naming, because context-free decoys are
 recognizable. It has exactly `host_name` (a lowercase DNS label), `dormant_user`,
-`aws_region` (nonempty), `cluster_name`, and `api_server`. `cluster_name` and
-`api_server` are nonempty strings without whitespace, required when any
-`kubeconfig-token` decoy is included and otherwise null.
+`aws_region` (nonempty), `cluster_name`, `api_server`, and `cluster_ca_data` (the
+standard base64 of the cluster's public CA certificate). These three are nonempty
+strings without whitespace, required when any `kubeconfig-token` decoy is included
+and otherwise null.
 
 `dormant_user` is a POSIX user name (a lowercase letter or `_`, then up to 31 lowercase
 letters, digits, `_`, or `-`) or null. It MUST name an account that exists only for

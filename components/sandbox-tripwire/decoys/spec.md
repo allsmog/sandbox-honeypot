@@ -62,9 +62,8 @@ companions or cover files would be skipped as `exposed` or `occupied` (below). A
 uses the eligible candidate at index `b mod n`, where `n` is the number of eligible
 candidates in catalog order and `b` is the first byte of HMAC-SHA256 keyed with the
 seed over the UTF-8 bytes of `deployment_id`, a line feed, the ASCII string `layout`, a
-line feed, and `decoy_id`. A candidate is also ineligible when it or its companions
-collide with a location, companion, or cover file of a relocation, a custom decoy, or a
-decoy placed earlier. With no eligible candidate, the first candidate is checked and
+line feed, and `decoy_id`. A candidate is also ineligible when its footprint collides
+with that of a relocated or custom decoy or of a decoy placed earlier. With no eligible candidate, the first candidate is checked and
 skipped. Operators SHOULD give each host its own `deployment_id`, so layouts vary;
 with few candidates, relocation is the main source of diversity.
 
@@ -108,8 +107,10 @@ memory and never write a file.
 Credential-file and socket locations are paths; endpoint locations are address
 endpoints, never the unspecified address `0.0.0.0` or `[::]`. Each of `include`,
 `exclude`, `relocate`, `epochs`, and `provided_credentials` names a decoy at most once.
-Two items **collide** when their canonical paths are equal or one lies beneath the
-other, or their canonical endpoints are equal.
+A decoy's **footprint** is its location, its companions, and its cover files. Two
+items collide when their canonical paths are equal or one lies beneath the other, or
+their canonical endpoints are equal; two footprints collide when any of their items
+do. Relocated and custom decoys count whether or not they are placed.
 
 ## Paths, aliases, and endpoints
 
@@ -129,9 +130,10 @@ the port without leading zeros. Host names are not endpoints. An exposure endpoi
 `SCOPE:PORTS`: `SCOPE` is an address, a CIDR block (IPv4 `a.b.c.d/n`, or IPv6
 `[address]/n`), or `*`; `PORTS` is a port or `*`. A decoy endpoint is exposed when its
 canonical address lies in the scope and its port is in the ports. IPv4 addresses lie
-only in IPv4 scopes. A sandbox's loopback is its own, so `*` and CIDR scopes never
-cover loopback addresses; only an exposure endpoint naming a loopback address
-explicitly does (for sandboxes that share the host network). Egress rules naming
+only in IPv4 scopes. A sandbox's loopback is normally its own, so `*` and CIDR scopes
+never cover loopback addresses; only an exposure endpoint naming a loopback address
+explicitly does, which sandboxes sharing the host network, libkrun's TSI, and slirp,
+passt, or pasta with host-loopback forwarding need. Egress rules naming
 hosts MUST be resolved to addresses by the operator.
 
 ## Operation `plan`
@@ -151,31 +153,32 @@ overlay layers, and image or disk backing files, never paths as seen inside the 
 plus paths an agent harness reads on the host. `endpoints` lists exposure endpoints
 allowed by sandbox egress policy. `occupied` lists paths (covering everything beneath
 them) and address endpoints in real use; an occupied endpoint with address `0.0.0.0`
-or `[::]` covers every address on its port. `occupied` MUST list existing files and
-directories decoys could collide with, runtime-managed directories, and the default
-credential paths of any account whose tools use them (such as `/root/.aws` when root
-runs AWS tooling), because a decoy there would hijack real tooling.
+or `[::]` covers every address on its port. `occupied` MUST list existing files a
+footprint item would replace, runtime-managed directories, and the default credential
+directories of any account whose tools use them (such as `/root/.aws` when root runs
+AWS tooling), because a decoy there would hijack real tooling; directories that merely
+contain decoys, such as the dormant account's home, are not occupied.
 
 Watched decoys are skipped only when excluded. Every other included decoy is checked
 in this order and skipped with the first matching reason:
 
 1. `excluded`: its `decoy_id` is in `exclude`.
 2. `real-service`: it is `metadata-endpoint` and `metadata_service` is true.
-3. `exposed`: it is not `reachable`, and its canonical path, or that of one of its
-   companions or cover files, equals or lies beneath the canonical form of an exposure
-   path, or its canonical endpoint is exposed.
-4. `occupied`: its canonical location or that of a companion or cover file equals or
-   lies beneath the canonical form of an occupied path, or its canonical endpoint is
-   covered by an occupied endpoint (except `gateway-ssh`, described above).
-5. `collision`: it collides with a relocation, a custom decoy, a cover file, or a
-   decoy or companion placed earlier.
+3. `exposed`: it is not `reachable`, and a canonical path of its footprint equals or
+   lies beneath the canonical form of an exposure path, or its canonical endpoint is
+   exposed.
+4. `occupied`: a canonical path of its footprint equals or lies beneath the canonical
+   form of an occupied path, or its canonical endpoint is covered by an occupied
+   endpoint (except `gateway-ssh`, described above).
+5. `collision`: its footprint collides with that of another relocated or custom decoy
+   or of a decoy placed earlier.
 6. `unprovisioned`: it is an `aws-access-key` decoy without a provided credential.
 
 Every other decoy is placed. A skipped decoy's `location` is the candidate that was
 checked: its layout choice, the first candidate when none was eligible, or null for
-`helper-exec`. The request is invalid when a relocation, custom decoy, or cover file
-collides with a placed decoy, companion, or another of these (see `component.md` for
-the reported field). The result has exactly `operation`, `warnings` (in this order when
+`helper-exec`. The request is invalid when the footprints of two relocated or custom
+decoys collide, or two items of one footprint do (see `component.md` for the reported
+field). The result has exactly `operation`, `warnings` (in this order when
 applicable: `seed-in-request`, and `public-socket-name` when `runtime-control` is
 placed at a catalog candidate), `watch`, `material`, `companions`, and `skipped`
 (objects with exactly `decoy_id`, `location`, and `reason`, in decoy order);

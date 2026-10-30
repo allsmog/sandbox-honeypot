@@ -18,7 +18,9 @@ behalf, as for cloud audit trails, SSH logs, and token webhooks, which cannot si
 `max_silence_seconds` (positive integer or null), and `max_delay_seconds` (positive
 integer), with unique sources. An event from an undeclared source is rejected at
 `/source`. Each signer numbers the events it ships per instance, so every event has a
-sequence and filtering happens before signing.
+sequence and filtering happens before signing. A sensor also consumes one sequence
+number for each record it loses before shipping, as in a full kernel ring buffer, so
+loss appears as a sequence gap.
 
 ## Authenticated events
 
@@ -53,7 +55,7 @@ A request MUST fit in one command-line argument, so operators evaluate consecuti
 windows as batches; every event belongs to exactly one batch by its `received` time,
 so an event that arrives late is still evaluated. `carry` is null for the first batch
 and otherwise the `carry` of the result for the immediately preceding window. It has
-exactly:
+exactly `window_end` (that window's `end`) and:
 
 - `sequences`: objects with exactly `source`, `sensor_instance`, `highest`,
   `missing` (at most 64 objects with exactly `from` and `to`, the newest kept), and
@@ -189,7 +191,7 @@ In these scenarios `W` is the `watch` from the gVisor cloud-VM plan in
 ### Scenario: Dropped, late, and replayed records across batches
 
 - **GIVEN** `W`, and a first batch whose `ebpf` heartbeats from instance `boot-1` have sequences 1 and 2
-- **WHEN** the second batch, given that `carry`, has `boot-1` heartbeats with sequences 5 and 2 and a `boot-2` heartbeat with sequence 1, and a third batch, given the second's `carry`, has a `boot-1` heartbeat `h3` with sequence 3
+- **WHEN** the second batch, for 2026-10-31 and given that `carry`, has `boot-1` heartbeats with sequences 5 and 2 and a `boot-2` heartbeat with sequence 1, and a third batch, for 2026-11-01 and given the second's `carry`, has a `boot-1` heartbeat `h3` with sequence 3, each event received at noon of its batch's day
 - **THEN** the second batch reports sequence gap `boot-1` after 2 before 5, sequence duplicate `boot-1` 2, and sensor restart `boot-2`, and the third batch lists `h3` as a late fill
 
 ### Scenario: Silent sensor

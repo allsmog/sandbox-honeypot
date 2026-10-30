@@ -113,6 +113,6 @@ In these scenarios `W` is the `watch` from the gVisor cloud-VM plan in
 
 ### Scenario: Endpoint spellings, companion, and hard link
 
-- **GIVEN** the `watch` from the Kubernetes node plan in `decoys/spec.md` and a decoy inode for `ssh-private-key` of device 2049, inode 1234
+- **GIVEN** the `watch` from the Kubernetes node plan in `decoys/spec.md` and a decoy inode for `ssh-private-key` at `/root/.ssh/id_ed25519` of device 2049, inode 1234
 - **WHEN** `n1` connects to `[::ffff:169.254.169.254]:80`, `n2` reads `/tmp/k` with target inode device 2049, inode 1234, `n3` connects to `0.0.0.0:2375`, and `n4` performs `stat` on `/root/.ssh/id_ed25519.pub`
 - **THEN** the alerts are `n1/metadata-endpoint`, `n2/ssh-private-key`, `n3/docker-api`, and `n4/ssh-private-key`, all `host-breach`

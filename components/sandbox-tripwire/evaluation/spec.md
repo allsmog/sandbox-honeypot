@@ -25,12 +25,12 @@ equal only when both fields are, so a reused PID never matches.
 | `watch` | object | A `watch` object from a `plan` result. |
 | `sandboxes` | array | Objects with exactly `sandbox_id`, `runtime_processes` (nonempty identities of that sandbox's runtime on the host, such as the gVisor sandbox and gofer or the VMM), and `harness_processes` (identities of the agent harness that drives it, possibly empty). Sandbox IDs and identities are unique. |
 | `suppressions` | array | Trusted maintenance: objects with exactly `decoy_id` (in `watch.decoys`), `executable` (path), `executable_digests` (nonempty array of 64 lowercase hex SHA-256 digests of acceptable versions of the executable file), `uid` (integer), and `value_digest` (64 lowercase hex for a kernel interface, null otherwise). |
-| `expected_helpers` | array | Executables the kernel legitimately launches as user-mode helpers: objects with exactly `path` (the fully resolved file the kernel execs: on merged-`/usr` systems `/usr/bin/kmod`, not `/sbin/modprobe`) and `digests` (nonempty array of SHA-256 digests of acceptable versions of that file; for a script, of the script, not its interpreter). Operators add a new version's digest before upgrading the package that ships it. |
+| `expected_helpers` | array | Executables the kernel legitimately launches as user-mode helpers, checked at every exec by a depth-0 process and never a shell or general-purpose interpreter: objects with exactly `path` (the fully resolved file the kernel execs: on merged-`/usr` systems `/usr/bin/kmod`, not `/sbin/modprobe`) and `digests` (nonempty array of SHA-256 digests of acceptable versions of that file; for a script, of the script, not its interpreter). Operators add a new version's digest before upgrading the package that ships it. |
 | `ignore_stat` | array of strings | Planted path decoys in `watch.decoys` for which `stat` on the decoy or its companions is not a hit, where people routinely long-list the directory. This trades away detection of metadata reconnaissance on those decoys. |
 | `harness_signatures` | array | See `attribution/spec.md`. |
 | `sources`, `probe`, `corroboration`, `authentication`, `sensor_keys`, `max_clock_skew_seconds`, `carry` | | See `telemetry/spec.md`; `sensor_keys` is optional. |
 | `window` | object | Exactly `start` and `end` timestamps, `end` after `start`. It contains the events **received** from `start` (inclusive) to `end` (exclusive). |
-| `decoy_inodes` | array | Objects with exactly `decoy_id` (a placed planted path decoy), `path` (its canonical location or one of its `companion_paths`), `device` (the `st_dev` value `stat(2)` returns), and `inode` (`st_ino`) of the decoys as currently materialized. Inode numbers are reused once freed, so operators MUST record new entries whenever decoys are re-materialized (each boot for decoys on `tmpfs`, each rotation) and start a new batch there. Paths and device-inode pairs are unique. |
+| `decoy_inodes` | array | Objects with exactly `decoy_id` (a placed planted path decoy), `path` (its canonical location or one of its `companion_paths`), `device` (the `st_dev` value `stat(2)` returns), and `inode` (`st_ino`) of the decoys as currently materialized; sensors report the same encoding, including the anonymous devices of btrfs subvolumes and overlay filesystems. Inode numbers are reused once freed, so operators MUST record new entries whenever decoys are re-materialized (each boot for decoys on `tmpfs`, each rotation) and start a new batch there. Paths and device-inode pairs are unique. |
 | `events` | array | Host sensor observations. |
 
 Everything except the elements of `events` is validated strictly and fails the
@@ -58,17 +58,19 @@ large to submit.
 | `sensor_instance` | string | Identifies one run of the signer, such as a boot ID plus start time. |
 | `sequence` | integer | The signer's counter for this instance, incremented for every event it ships. |
 | `action` | string | One of the actions below. |
-| `target` | string | What was acted on: a path, an address endpoint, or for `credential-use` the lowercase hexadecimal SHA-256 of the observed identifier, hashed by the collector so no credential reaches the request. For `rename`, `link`, and `delete`, the path of the existing object before the operation. |
+| `target` | string | What was acted on: a path, an address endpoint, or for `credential-use` the lowercase hexadecimal SHA-256 of the observed identifier, hashed by the collector so no credential reaches the request. For `rename`, `link`, and `delete`, the path of the existing object before the operation; a `rename` or `link` also yields an event whose target is the destination, with the inode of any object it replaces (for an exchange, each object's). |
 | `mac` | string or null | See `telemetry/spec.md`. |
 | `target_inode` | object or null | Exactly `device` and `inode` of the object, encoded as in `decoy_inodes`. Sensors MUST supply it whenever `target` is a path. |
 | `target_fs` | object or null | Exactly `type` (filesystem type, such as `proc` or `cgroup`) and `path` (path within that filesystem, without a leading `/`). |
-| `target_digest` | string or null | For `exec`, the SHA-256 of the file named by the exec (for a script, the script). |
+| `target_digest` | string or null | For `exec`, the SHA-256 of the file named by the exec (for a script, the script), computed from the exec'd file object at exec time. |
 | `written_digest` | string or null | For `write`, the SHA-256 of the bytes passed to that one `write(2)` call. |
 | `actor` | object | Exactly `process` (identity or null), `ancestry` (identities of the creation chain recorded when each process was created, parent first, including kernel threads and unaffected by later reparenting), `helper_depth` (0 when the kernel created this process to run a user-mode helper through `call_usermodehelper`, never for init or other kernel-thread children; `n` when its nearest such ancestor is its `n`th; otherwise null), `executable` (the path of the file the process exec'd, reported like a path target but null when unreachable from the initial mount namespace; for a script run directly, the script), `executable_digest` (64 lowercase hex SHA-256 of that file, computed from the exec'd file object at exec time, or null), `uid` (effective user ID in the initial user namespace, or null), `comm` (string or null), `environment_names` (array of strings or null), and `sandbox_id` (string or null). |
 
 Actions are `stat` (also `access`, `readlink`, and extended-attribute reads), `open`
 (read-only), `open-write`, `read`, `write`, `truncate`, `exec`, `delete`, `rename`,
-`link`, `attr` (changes of mode, owner, extended attributes, or timestamps),
+`link`, `attr` (changes of mode, owner, extended attributes, or timestamps), `mount`
+(a mount placed or moved onto the target; one setting a cgroup `release_agent` option
+is also reported as a `write` with that `target_fs`),
 `connect`, `credential-use`, and `heartbeat` (a liveness record, which never hits).
 Sensors MUST observe through LSM or kernel-function hooks on the object (such as
 `security_file_open`, `security_inode_getattr`, `security_unix_stream_connect` for Unix
@@ -77,8 +79,16 @@ tracepoints, which miss `io_uring` operations; fanotify alone cannot observe `st
 failed opens, or socket `connect`. Sensors MUST also record attempts the kernel refuses
 before those hooks run, such as an open denied by file mode or a lookup denied by a
 directory's mode (for example with exit probes on `may_open` and path lookup), because
-an unprivileged intruder's attempts on root-only decoys fail there. Hooks always allow
-the operation (`stealth/spec.md`).
+an unprivileged intruder's attempts on root-only decoys fail there; the target of a
+refused lookup is the requested path made absolute against the working directory or
+`dirfd`, with symlinks substituted as far as the walk got and `.` and `..` then
+resolved lexically. Endpoint decoys MUST also be observed where connections arrive
+(accepts on the decoy listener, netfilter or conntrack records for its address, or the
+real server's logs when `listener` is false), because guests of VM and user-space
+network sandboxes reach host endpoints without any host `connect`, and TCP fast-open
+and raw packets bypass connect hooks; such flow sources report the connecting
+sandbox in `actor.sandbox_id` when they can tell it. Hooks always allow the operation
+(`stealth/spec.md`).
 
 Sensors MUST report a path as the kernel-resolved absolute path of the object from the
 root of the initial mount namespace (as `d_path` resolves it against PID 1's root, so
@@ -88,7 +98,8 @@ an inode binding can match. A `target` MUST be, or the event is rejected at `/ta
 the empty string for `heartbeat`; 64 lowercase hexadecimal characters for
 `credential-use`; a path or an address endpoint for `connect`; and otherwise a string
 starting with `/`, which is matched as a path even when truncated.
-Text is UTF-8 with each invalid byte replaced by U+FFFD.
+Text is UTF-8 with each invalid byte replaced by U+FFFD; an escaped lone surrogate is
+an invalid value.
 `environment_names` holds variable **names** only: sensors MUST NOT collect values.
 
 An event with an invalid core field is **rejected** and recorded at the first invalid
@@ -122,7 +133,7 @@ endpoint target is canonicalized with `0.0.0.0` rewritten to `127.0.0.1` and `[:
   `heartbeat` (and `stat` for decoys in `ignore_stat`), and either `target_inode`
   equals a `decoy_inodes` entry of that decoy (catching hard links and bind mounts) or
   the canonical target equals its `canonical_location` or one of its
-  `companion_paths`; or
+  `companion_paths`, or for `mount` lies above one of them; or
 - an endpoint decoy, when `action` is `connect` and the canonical target equals its
   `canonical_location`.
 
@@ -132,27 +143,33 @@ An accepted non-`heartbeat` event that hits nothing is **ignored**. The same mat
 applied to whatever fields of a rejected event parse, lists it in `rejected_hits`
 (`index` and `decoy_id`), because a malformed or forged event on a decoy needs
 investigation. When a placed planted path decoy or one of its companions has no
-`decoy_inodes` entry, the result warns `missing-inode-binding`.
+`decoy_inodes` entry, the result warns `missing-inode-binding`; when an accepted event's
+canonical target is a bound path but its `target_inode` differs from that path's
+binding, it warns `inode-binding-mismatch`, since a replaced decoy or a wrongly encoded
+device would otherwise leave hard links and private mounts unmatched. A rejected event
+whose `action` is invalid is matched under every rule its valid fields allow.
 
 A hit is a **probe hit** when `probe` is not null, the decoy is planted, the action is
 `stat`, `open`, `read`, or `connect`, and the actor's canonical `executable`,
-`executable_digest`, and `uid` equal the probe's. Otherwise it is **suppressed** when a
+`executable_digest`, and `uid` equal the probe's, and the decoy has no
+`decoy_inodes` entry for the target's path or `target_inode` matches it. Otherwise it is **suppressed** when a
 suppression names its `decoy_id`, the actor's non-null canonical `executable` and `uid`, and a
 digest in `executable_digests` equal to the actor's non-null `executable_digest`, and, for a `write` to a kernel interface, the event's
 `written_digest` equals the suppression's `value_digest`, so a maintenance tool
 writing an unexpected value still alerts. `credential-use` and `helper-exec` hits are
 never probe hits or suppressed, nor is a hit whose actor is a sandbox's runtime or
-harness process, descends from one, or has a non-null `helper_depth`. Every other hit
-is an alert.
+harness process, descends from one, or has a non-null `helper_depth`, nor one whose
+`actor.process`, `ancestry`, or `helper_depth` was repaired. Every other hit is an
+alert.
 
 ## Result
 
 | Field | Meaning |
 | --- | --- |
 | `operation`, `deployment_id` | `evaluate`, and `watch.deployment_id`. |
-| `warnings` | In this order, each when applicable: `keys-in-request`, `unauthenticated`, `missing-inode-binding`. |
-| `breached` | True when `alerts` is nonempty. |
-| `degraded` | True when `warnings` contains `missing-inode-binding` or any of `rejected`, `repaired`, `rejected_hits`, `duplicate_event_ids`, or the tamper lists is nonempty. |
+| `warnings` | In this order, each when applicable: `keys-in-request`, `unauthenticated`, `missing-inode-binding`, `inode-binding-mismatch`. |
+| `breached` | True when `alerts` or `rejected_hits` is nonempty, since a demoted hit still needs response. |
+| `degraded` | True when `warnings` contains `missing-inode-binding` or `inode-binding-mismatch`, or any of `rejected`, `repaired`, `rejected_hits`, `duplicate_event_ids`, or the tamper lists is nonempty. |
 | `alerts` | Ordered by `time` instant, then `event_id`, then index. |
 | `incidents` | Alerts grouped by sandbox. |
 | `suppressed` | Objects with exactly `event_id` and `decoy_id`, in event order. |

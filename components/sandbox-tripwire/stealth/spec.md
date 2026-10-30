@@ -25,8 +25,9 @@ no host side effects, and `plan` enforces the parts it can check.
 - Companions are watched, so inspecting a decoy through its companion is a hit too.
 - A socket or endpoint decoy accepts connections and answers its imitated protocol
   the way a real service that rejects the caller would, never with a banner, error,
-  or delay unique to the decoy. Its listener runs under a process name and account
-  that fit the service it imitates. Socket names SHOULD be site-specific (`relocate`),
+  or delay unique to the decoy. Its listener's executable, account, service unit, and
+  start time fit the service it imitates, since `ss -p` and `/proc` show them without
+  a connection. Socket names SHOULD be site-specific (`relocate`),
   because the catalog's names are public (`plan` warns `public-socket-name`). An
   endpoint listener binds only its decoy address, so no other host address reaches it
   unwatched. On a host without a metadata service, the metadata decoy is reached
@@ -70,7 +71,9 @@ no host side effects, and `plan` enforces the parts it can check.
   credential secrets but is confidential, because it lists which assets are decoys.
 - Sensor and probe configuration that names decoy locations is readable only by root
   on the protected host, and SHOULD use rules broad enough (a directory or a class of files)
-  that it does not enumerate decoys.
+  that it does not enumerate decoys. A host-root intruder can still dump sensor state,
+  such as an inode set, so it also covers ordinary sensitive files, and decoy matching
+  happens off-host in `evaluate`.
 - No two hosts share a decoy layout or decoy credentials: each host has its own
   `deployment_id`, so agents that pool what they learn across hosts cannot use one
   host's decoys to recognize another's.
@@ -86,7 +89,8 @@ decoys, since `ls -l`, colored `ls` (the default alias on many distributions), a
 shell completion stat entries (prefer the dormant account's home, which nobody lists);
 file-integrity monitors, antivirus, and secret scanners that open credential paths
 (suppress them by executable, digest, and user, running interpreted scanners as
-directly executed scripts, or keep decoys out of their scope); the sensors' own file
+directly executed scripts, or keep decoys out of their scope); backups (exclude decoys
+from them rather than suppressing the backup tool, which copies decoys elsewhere); the sensors' own file
 access (exclude their processes in the sensor); package upgrades that change a
 suppressed executable's or expected helper's digest (add the new digest first);
 monitoring agents that probe the Docker socket, Docker API, or metadata endpoint
