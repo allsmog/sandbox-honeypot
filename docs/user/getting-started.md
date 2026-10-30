@@ -26,33 +26,45 @@ development workflow below.
 
 The application exposes one `run` entrypoint that takes a single JSON object.
 
-1. **Plan decoys.** Put the secret seed in `SANDBOX_HONEYPOT_SEED` (never on the
-   command line), then describe the deployment, everything the sandbox can
-   legitimately reach (`exposure`), real host assets (`occupied`), any symlinked
-   directories (`path_aliases`), and optional decoys of your own:
+1. **Provision an AWS canary.** Create an IAM user whose policy denies everything,
+   in an account whose audit trail (including denied calls) you collect. A made-up
+   key would never be logged when used. Pass only the SHA-256 of its access key ID.
+
+2. **Plan decoys.** Put at least 32 random bytes in `SANDBOX_HONEYPOT_SEED` (never on
+   the command line), then describe the deployment. `exposure` lists **host-side**
+   paths any sandbox can reach (mount and share sources, not guest paths) and the
+   addresses its egress allows (`*:*` for unrestricted). `occupied` lists real host
+   assets, including runtime state directories:
 
    ```json
    {"operation": "plan", "deployment_id": "prod-agents", "runtime": "gvisor",
     "host_profile": "linux-host", "host_environment": "cloud-vm",
-    "exposure": {"paths": ["/root/.ssh"], "endpoints": []},
-    "occupied": ["/run/docker.sock"], "path_aliases": [],
-    "custom_decoys": [], "exclude": []}
+    "exposure": {"paths": ["/srv/agents"], "endpoints": ["*:443"]},
+    "occupied": ["/run/docker.sock", "/var/run/runsc"], "path_aliases": [],
+    "exclude": [], "relocate": [], "custom_decoys": [], "epochs": [],
+    "provided_credentials": [{"decoy_id": "cloud-credentials",
+                              "identifier_digest": "<sha256 of key ID>"}]}
    ```
 
-   The result has three parts: `material` holds the secret decoy credentials, in
-   realistic AWS, OpenSSH and Kubernetes token formats. `watch` describes what to
-   monitor and contains no secrets. `skipped` explains each decoy left out.
+   The result has three parts: `material` holds derived secrets (OpenSSH key,
+   Kubernetes token), `watch` describes what to monitor and contains no secrets, and
+   `skipped` explains each decoy left out. To rotate one decoy, raise its epoch.
 
-2. **Place the decoys and watch them.** Write each credential decoy from `material`,
-   create the socket and endpoint decoys, then delete `material`. Point host-side
+3. **Place the decoys and watch them.** Write each credential decoy (the AWS one from
+   your IAM user, the rest from `material`), create the socket and endpoint decoys,
+   record their device and inode numbers, then delete `material`. Point host-side
    sensors (fanotify, auditd, eBPF, flow logs, cloud audit logs) at the `watch`
-   locations, and send periodic heartbeats. Version 0.1.0 does not do this for you.
+   locations, and ship each event off the host immediately. Enable `LogLevel
+   VERBOSE` on SSH servers and a token webhook for Kubernetes so credential use is
+   logged. Run a self-test prober that touches every decoy on a schedule. Version
+   0.1.0 does not do this for you.
 
-3. **Evaluate events.** Send `watch`, the sandboxes' host PIDs, an observation window,
-   the expected sensors, maintenance suppressions (by executable and uid), and sensor
-   events as `{"operation": "evaluate", ...}`. The result reports `breached` with
-   critical, attributed alerts and per-sandbox incidents, and `degraded` when events
-   were malformed or a sensor went silent.
+4. **Evaluate events.** Send `watch`, each sandbox's runtime process identities (PID
+   and start ticks), maintenance suppressions (by executable and uid), the prober,
+   an observation window, decoy inodes, and sensor events as
+   `{"operation": "evaluate", ...}`. The result reports `breached` with critical
+   alerts that separate escaped processes from runtime-mediated contact, and
+   `degraded` when events were malformed or duplicated or a decoy's monitoring broke.
 
 ---
 
