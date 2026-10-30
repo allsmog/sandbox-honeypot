@@ -23,14 +23,15 @@ equal only when both fields are, so a reused PID never matches.
 | --- | --- | --- |
 | `operation` | string | `evaluate`. |
 | `watch` | object | A `watch` object from a `plan` result. |
-| `sandboxes` | array | Objects with exactly `sandbox_id`, `runtime_processes` (nonempty identities of that sandbox's runtime on the host, such as the gVisor sandbox and gofer or the VMM), and `harness_processes` (identities of the agent harness that drives it, possibly empty). Sandbox IDs and identities are unique. Operators keep listing a sandbox after it ends, until reboot, because escaped descendants can outlive it. |
+| `sandboxes` | array | Objects with exactly `sandbox_id`, `runtime_processes` (nonempty identities of that sandbox's runtime on the host, such as the gVisor sandbox and gofer or the VMM), and `harness_processes` (identities of the agent harness that drives it, possibly empty). Sandbox IDs and runtime identities are unique, and a harness identity is never also a runtime identity; one harness identity may be listed under several sandboxes it drives. Operators keep listing a sandbox after it ends while any process descended from its runtime or harness may still live (until the sensor reports none, or reboot), because escaped descendants can outlive it. |
 | `suppressions` | array | Trusted maintenance: objects with exactly `decoy_id` (in `watch.decoys`), `executable` (path), `executable_digests` (nonempty array of 64 lowercase hex SHA-256 digests of acceptable versions of the executable file), `uid` (integer), and `value_digest` (64 lowercase hex for a kernel interface, null otherwise). |
 | `expected_helpers` | array | Executables the kernel legitimately launches as user-mode helpers, checked at every exec by a depth-0 process and never a shell or general-purpose interpreter: objects with exactly `path` (the fully resolved file the kernel execs: on merged-`/usr` systems `/usr/bin/kmod`, not `/sbin/modprobe`) and `digests` (nonempty array of SHA-256 digests of acceptable versions of that file; for a script, of the script, not its interpreter). Operators add a new version's digest before upgrading the package that ships it. |
 | `ignore_stat` | array of strings | Planted path decoys in `watch.decoys` for which `stat` on the decoy or its companions is not a hit, where people routinely long-list the directory. This trades away detection of metadata reconnaissance on those decoys. |
 | `harness_signatures` | array | See `attribution/spec.md`. |
 | `sources`, `probe`, `corroboration`, `authentication`, `sensor_keys`, `max_clock_skew_seconds`, `carry` | | See `telemetry/spec.md`; `sensor_keys` is optional. |
 | `window` | object | Exactly `start` and `end` timestamps, `end` after `start`. It contains the events **received** from `start` (inclusive) to `end` (exclusive). |
-| `decoy_inodes` | array | Objects with exactly `decoy_id` (a placed planted path decoy), `path` (its canonical location or one of its `companion_paths`), `device` and `inode` (decimal strings without leading zeros of the `st_dev` and `st_ino` values `stat(2)` returns, which can exceed 2^53) of the decoys as currently materialized; sensors report the same encoding, including the anonymous devices of btrfs subvolumes and overlay filesystems. Inode numbers are reused once freed, so operators MUST record new entries at every boot (device numbers of `tmpfs`, btrfs, overlay, and device-mapper filesystems change across boots) and every rotation and start a new batch there. Paths and device-inode pairs are unique. |
+| `decoy_inodes` | array | Objects with exactly `decoy_id` (a placed planted path decoy), `path` (its canonical location or one of its `companion_paths`), `device` and `inode` (decimal strings without leading zeros of the `st_dev` and `st_ino` values `stat(2)` returns, which can exceed 2^53) of the decoys as currently materialized; sensors report the same encoding, including the anonymous devices of btrfs subvolumes and overlay filesystems. Inode numbers are reused once freed, so operators MUST record new entries at every boot (device numbers of `tmpfs`, btrfs, overlay, and device-mapper filesystems change across boots) every rotation, and whenever a listener re-creates its socket (socket activation keeps it
+stable) and start a new batch there. Paths and device-inode pairs are unique. |
 | `events` | array | Host sensor observations. |
 
 Everything except the elements of `events` is validated strictly and fails the
@@ -44,7 +45,8 @@ included and surrounding quotes excluded: identifiers and `target_fs.type` at mo
 256, `comm` at most 64, paths and targets at most 4096, and the `environment_names`
 array, serialized whole, at most 2048; `ancestry` has at
 most 64 entries. Sensors truncate longer values before signing, at a character
-boundary, keeping the nearest 32 and farthest 32 entries of a longer `ancestry`, so a
+boundary (a path after normalizing it, cutting from its middle so the final segments
+survive), keeping the nearest 32 and farthest 32 entries of a longer `ancestry`, so a
 deep chain of forks cannot push the host-side runtime or harness out of it. These
 limits keep every event under 20 KiB, so attacker-chosen names cannot make an event too
 large to submit.
@@ -125,8 +127,12 @@ field treated as null (`actor` fields individually; `ancestry` as empty) and rec
 in `repaired`, so a crafted file name or environment cannot turn an attacker's own hit
 into a rejection. An unknown event field is dropped and recorded in `repaired` the same way. A repeated object key makes
 the request invalid at that object, except inside an element of `events`, where it
-rejects that event at that object, so one forged event cannot void a batch. Events sharing an `event_id` are all evaluated; the ID is listed in
+rejects that event at that object, so one forged event cannot void a batch. Accepted events sharing an `event_id` are all evaluated; the ID is listed in
 `duplicate_event_ids`, and each of their alert IDs gains `#` and the event's index.
+Rejected events take no part in this, so a forged copy cannot rename a real alert. An
+element of `events` that is not an object, nests deeper than 8 levels, or holds a
+number outside the integer range is rejected at that value; collectors quarantine and
+report events over 20 KiB instead of batching them.
 
 ## Hits
 

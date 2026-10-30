@@ -78,7 +78,9 @@ no host side effects, and `plan` enforces the parts it can check.
   credential secrets but is confidential, because it lists which assets are decoys.
 - Sensor and probe configuration that names decoy locations is readable only by root
   on the protected host, and SHOULD use rules broad enough (a directory or a class of files)
-  that it does not enumerate decoys. A host-root intruder can still dump sensor state,
+  that it does not enumerate decoys. Probes, materializers, and sensors never carry
+  decoy paths in their arguments or environment, which other users can read in
+  `/proc`. A host-root intruder can still dump sensor state,
   such as an inode set, so it also covers ordinary sensitive files, and decoy matching
   happens off-host in `evaluate`.
 - No two hosts share a decoy layout or decoy credentials: each host has its own
@@ -98,8 +100,9 @@ file-integrity monitors, antivirus, and secret scanners that open credential pat
 (suppress them by executable, digest, and user, running interpreted scanners as
 directly executed scripts, or keep decoys out of their scope); backups (exclude decoys
 from them rather than suppressing the backup tool, which copies decoys elsewhere); the sensors' own file
-access (exclude their processes in the sensor, by executable digest and uid or exact
-process identity, never by `comm` or another self-reported name); package upgrades that change a
+access (exclude their processes in the sensor only by exact process identity, never by
+digest, `comm`, or another name, since the engine's lineage checks never see an
+excluded event); package upgrades that change a
 suppressed executable's or expected helper's digest (add the new digest first);
 monitoring agents that probe the Docker socket, Docker API, or metadata endpoint
 (leave those opt-in decoys out); the materializer and decoy listeners themselves,

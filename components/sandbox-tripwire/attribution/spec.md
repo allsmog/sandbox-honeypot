@@ -18,7 +18,9 @@ Each alert is attributed by the first rule that applies:
    advisories include a Firecracker jailer host-file overwrite and a Cloud Hypervisor
    disk backing-file host leak); otherwise a compromised runtime or a mis-declared
    exposure.
-2. `harness`: `actor.process` equals a sandbox's harness process.
+2. `harness`: `actor.process` equals a sandbox's harness process. A harness listed
+   under several sandboxes names none of them, so `sandbox_id` is null, since which
+   sandbox's content persuaded it is unknown; the same applies under rule 3.
 3. Lineage: the first identity in `actor.ancestry` equal to a runtime or harness
    process names its sandbox, with attribution `ancestry` for a runtime process (a new
    process descended from the runtime, the classic escape) and `harness` for a harness

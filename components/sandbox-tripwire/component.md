@@ -147,8 +147,8 @@ receives the complete JSON argument array in one command-line token, so a reques
 fit in one argument (128 KiB on Linux): operators split a long period into consecutive
 `evaluate` batches joined by `carry` (`telemetry/spec.md`). Event limits keep each
 event under 20 KiB (`evaluation/spec.md`), so a request whose other fields stay under
-100 KiB can always carry one. Requests escape strings only as RFC 8785 does, the
-encoding these sizes assume. The result is one JSON
+100 KiB can always carry one. Collectors escape strings only as RFC 8785 does, the
+encoding these sizes assume; the engine accepts any valid JSON escaping. The result is one JSON
 object written to standard output. An operator MUST treat a failed, rejected, or
 skipped evaluation as an alert, since an attacker may try to make evaluation fail,
 and SHOULD investigate a sequence gap on a sensor that covers planted decoys as one.
@@ -176,7 +176,8 @@ checked in this order, each reported at the field named:
    and its `window_end` differs from `window.start` (`/window/start`).
 3. A value that must be unique repeats: a decoy named twice in `include`, `exclude`,
    `relocate`, `epochs`, `provided_credentials`, `corroboration.decoys`, or
-   `ignore_stat`, a custom `decoy_id`, a source, sandbox ID, process identity, harness ID, or
+   `ignore_stat`, a custom `decoy_id`, a source, sandbox ID, runtime process identity or one also listed as a harness,
+   harness ID, or
    `decoy_inodes` path or device-inode pair (the later occurrence). Other lists, such
    as `suppressions`, `decoy_inodes`, and `retired_canaries`, may name a decoy more
    than once.
