@@ -58,6 +58,9 @@ already has no host side effects.
 - Sensor configuration that names decoy locations is readable only by root on the
   protected host, and SHOULD use rules broad enough (a directory or a class of files)
   that it does not enumerate decoys.
+- No two hosts share a decoy layout or decoy credentials: each host has its own
+  `deployment_id`, so agents that pool what they learn across hosts cannot use one
+  host's decoys to recognize another's.
 - Every interaction an attacker can make with a decoy is a hit, including a metadata
   read (`stat`), so a decoy cannot be inspected safely before it is touched. Listing
   the containing directory is not a hit.

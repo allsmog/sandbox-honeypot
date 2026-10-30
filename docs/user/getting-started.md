@@ -30,15 +30,21 @@ The application exposes one `run` entrypoint that takes a single JSON object.
    in an account whose audit trail (including denied calls) you collect. A made-up
    key would never be logged when used. Pass only the SHA-256 of its access key ID.
 
-2. **Plan decoys** on a system outside the protected host. Put at least 32 random bytes in `SANDBOX_HONEYPOT_SEED` (never on
-   the command line), then describe the deployment. `exposure` lists **host-side**
-   paths any sandbox can reach (mount and share sources, not guest paths) and the
-   addresses its egress allows (`*:*` for unrestricted). `occupied` lists real host
-   assets, including runtime state directories:
+2. **Plan decoys** on a system outside the protected host. Put at least 32 random
+   bytes in `SANDBOX_HONEYPOT_SEED` (never on the command line) and give each host its
+   own `deployment_id`, so decoy layouts differ between hosts. `exposure` lists
+   **host-side** paths any sandbox can reach (mount and share sources, not guest
+   paths) and the addresses its egress allows (`*:*` for unrestricted). `occupied`
+   lists real host assets, including runtime state directories. `context` supplies
+   your own naming so decoys look like they belong, and `sandbox_gateway` plants an SSH
+   decoy where escaping agents look for host SSH:
 
    ```json
-   {"operation": "plan", "deployment_id": "prod-agents", "runtime": "gvisor",
+   {"operation": "plan", "deployment_id": "prod-agents-host-17", "runtime": "gvisor",
     "host_profile": "linux-host", "host_environment": "cloud-vm",
+    "context": {"organization": "acme", "service_user": "deploy",
+                "aws_region": "us-east-1", "cluster_name": null, "api_server": null},
+    "sandbox_gateway": "172.17.0.1",
     "exposure": {"paths": ["/srv/agents"], "endpoints": ["*:443"]},
     "occupied": ["/run/docker.sock", "/var/run/runsc"], "path_aliases": [],
     "exclude": [], "relocate": [], "custom_decoys": [], "epochs": [],
@@ -46,29 +52,34 @@ The application exposes one `run` entrypoint that takes a single JSON object.
                               "identifier_digest": "<sha256 of key ID>"}]}
    ```
 
-   The result has three parts: `material` holds derived secrets (OpenSSH key,
-   Kubernetes token), `watch` describes what to monitor (no secrets, but keep it off the
-   protected host because it names the decoys), and
-   `skipped` explains each decoy left out. To rotate one decoy, raise its epoch.
+   The result has four parts. `material` holds derived secrets (OpenSSH key,
+   Kubernetes token). `companions` lists sibling files, such as `.pub` keys, to
+   create beside the decoys. `watch` describes what to monitor; it holds no secrets but
+   names the decoys, so keep it off the protected host. `skipped` explains each decoy
+   left out. Kernel-interface tripwires (`core_pattern`, `modprobe`, cgroup
+   `release_agent`, and others) need no files, only write monitoring. To rotate one
+   decoy, raise its epoch.
 
 3. **Place the decoys and watch them.** Write each credential decoy (the AWS one from
-   your IAM user, the rest from `material`), create the socket and endpoint decoys,
-   record their device and inode numbers, then delete `material`. Point host-side
-   sensors (fanotify, auditd, eBPF, flow logs, cloud audit logs) at the `watch`
-   locations using notification-only mechanisms (never blocking or denying access),
-   and ship each event off the host immediately. Nothing on the host may react
-   visibly: the attacker must not learn they touched a decoy. Enable `LogLevel
-   VERBOSE` on SSH servers and a token webhook for Kubernetes so credential use is
-   logged. Run a self-test prober that touches every decoy on a jittered schedule
-   without changing file timestamps. Version
-   0.1.0 does not do this for you.
+   your IAM user, the rest from `material`) and its companions, create the socket and
+   endpoint decoys, record their device and inode numbers, then delete `material`.
+   Point at least two independent host-side sensors (for example fanotify and eBPF)
+   at the `watch` locations using notification-only mechanisms that never block or
+   deny access, number each sensor's events, and ship every event off the host
+   immediately. Nothing on the host may react visibly: the attacker must not learn
+   they touched a decoy. Enable `LogLevel VERBOSE` on SSH servers and a token webhook
+   for Kubernetes so credential use is logged. Run a self-test prober that touches
+   every decoy on a jittered schedule without changing file timestamps. Version 0.1.0
+   does not do this for you.
 
-4. **Evaluate events** off the host. Send `watch`, each sandbox's runtime process identities (PID
-   and start ticks), maintenance suppressions (by executable and uid), the prober,
-   an observation window, decoy inodes, and sensor events as
-   `{"operation": "evaluate", ...}`. The result reports `breached` with critical
-   alerts that separate escaped processes from runtime-mediated contact, and
-   `degraded` when events were malformed or duplicated or a decoy's monitoring broke.
+4. **Evaluate events** off the host. Send `watch`, each sandbox's runtime process
+   identities (PID and start ticks), maintenance suppressions (by executable and uid),
+   the prober, which decoys two sensors must confirm, an observation window, decoy
+   inodes, and sensor events as `{"operation": "evaluate", ...}`. The result reports
+   `breached` with critical alerts that separate escaped processes, kernel-launched
+   payloads, runtime-mediated contact, and escape attempts, and `degraded` when events
+   were malformed, duplicated, or dropped, a decoy's monitoring broke, or one sensor
+   saw a contact another missed.
 
 ---
 
