@@ -58,8 +58,8 @@ neither) with that decoy's technique, so credentials of a removed decoy stay wat
 To rotate a provided key, keep the old deny-all key in IAM, so its use is still
 logged, and list its digest here. Each retired entry has exactly `decoy_id`, `kind`
 (`credential-file`), `technique` (the decoy's), `epoch` (null when not derived), and
-`canary_digest`. Each retired epoch adds about 110 bytes to `watch`, so derived decoys are rotated on
-suspected exposure rather than on a schedule. Every current and retired digest MUST be unique; otherwise the
+`canary_digest`. Each retired epoch adds about 170 to 220 bytes to `watch`, so derived decoys are rotated
+rarely, during routine maintenance and never as a visible reaction to a contact. Every current and retired digest MUST be unique; otherwise the
 request is invalid.
 
 ## Context

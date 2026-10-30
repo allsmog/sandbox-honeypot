@@ -52,7 +52,7 @@ no host side effects, and `plan` enforces the parts it can check.
 ## Observation is passive
 
 - Sensors observe without interposing: their hooks always allow the operation
-  (BPF-LSM programs that return 0, kernel-function or exit probes), never fanotify
+  (BPF-LSM programs that return the hook's default, kernel-function or exit probes), never fanotify
   permission events, blocking decisions, or access denials on decoys. A contact completes with the same
   result and no added latency an attacker could measure.
 - Detection takes no inline action on the protected host: at the time of contact

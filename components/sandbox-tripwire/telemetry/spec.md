@@ -119,17 +119,19 @@ program, never a shell or general-purpose interpreter), `executable_digest`
 (64 lowercase hex), `uid` (integer), and `max_interval_seconds` (positive integer).
 When it is not null, every planted decoy is probed: take its carried `last_probe` time
 (or `window.start`, carried likewise for every planted decoy), the `received` times of
-its probe hits on its own location (by path, or by inode through the location's
-binding; not its companions), and `window.end`, in
+its probe hits on its own location (by path, or by inode through a binding of the
+location; not its companions), and `window.end`, in
 instant order; every consecutive pair more than `max_interval_seconds` apart is a
 **watch gap** (`decoy_id`, `from`, `to`). Probes SHOULD check a file decoy with `stat`,
-which raises no inotify event, and one in `ignore_stat` with `open`. Decoys in
-`ignore_stat` are probed with `open`, which a user able to read their directory can
-see through inotify, part of what `ignore_stat` trades away. Endpoint probes MUST come
-from a dedicated network namespace only root can enter, through a veth whose host end
-is the only interface allowed to carry the probe source prefix; the host drops packets
-with a source in that prefix arriving on any other interface. An unprivileged process
-cannot send from that prefix, so every arrival source, including conntrack and SSH
+which raises no inotify event, and one in `ignore_stat` with `open`. Probes of
+loopback endpoint decoys connect from the initial network namespace, where connect
+hooks and listener-side sources fill `actor` from the probe process. Other endpoint
+probes MUST come from a dedicated network namespace only root can enter, through a
+veth whose host end is the only interface allowed to carry the probe source prefix:
+no address in the prefix is assigned in the initial namespace, and the host drops
+packets with a source in that prefix that arrive on any other interface or are
+generated locally. A process outside that namespace therefore cannot send from the
+prefix, so every arrival source, including conntrack and SSH
 server logs, can recognize probe connections by source address and report them with
 the probe's identity (`evaluation/spec.md`); firewall marks and key fingerprints
 alone never qualify. Watched decoys are not probed, because

@@ -171,14 +171,17 @@ checked in this order, each reported at the field named:
 
 1. The seed is absent, given both in the request and the environment, or too short
    (`/seed`); or, when authentication is required, the sensor keys are absent, given
-   in both, or do not name exactly the declared sources (`/sensor_keys`).
+   in both, malformed in the environment, or do not name exactly the declared sources
+   (`/sensor_keys`).
 2. `window.end` is not after `window.start` (`/window/end`), or `carry` is not null
    and its `window_end` differs from `window.start` (`/window/start`).
 3. A value that must be unique repeats: a decoy named twice in `include`, `exclude`,
    `relocate`, `epochs`, `provided_credentials`, `corroboration.decoys`, or
    `ignore_stat`, a custom `decoy_id`, a source, sandbox ID, runtime process identity or one also listed as a harness,
    harness ID, or
-   `decoy_inodes` device-inode pair or third entry for one path (the later occurrence). Other lists, such
+   `decoy_inodes` device-inode pair naming two paths, or a third or repeated entry for
+   one path (the later occurrence). Rules 3 and 8 cover request fields; rule 10 covers
+   `watch`. Other lists, such
    as `suppressions`, `decoy_inodes`, and `retired_canaries`, may name a decoy more
    than once.
 4. A reference names an unknown decoy or one of the wrong kind or state, a

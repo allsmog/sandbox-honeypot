@@ -31,7 +31,7 @@ equal only when both fields are, so a reused PID never matches.
 | `sources`, `probe`, `corroboration`, `authentication`, `sensor_keys`, `max_clock_skew_seconds`, `carry` | | See `telemetry/spec.md`; `sensor_keys` is optional. |
 | `window` | object | Exactly `start` and `end` timestamps, `end` after `start`. It contains the events **received** from `start` (inclusive) to `end` (exclusive). |
 | `decoy_inodes` | array | Objects with exactly `decoy_id` (a placed planted path decoy), `path` (its canonical location or one of its `companion_paths`), `device` and `inode` (decimal strings without leading zeros of the `st_dev` and `st_ino` values `stat(2)` returns, which can exceed 2^53) of the decoys as currently materialized; sensors report the same encoding, including the anonymous devices of btrfs subvolumes and overlay filesystems. Inode numbers are reused once freed, so operators MUST record new entries at every boot (device numbers of `tmpfs`, btrfs, overlay, and device-mapper filesystems change across boots) every rotation, and whenever a listener re-creates its socket (socket activation keeps it
-stable) and start a new batch there. Device-inode pairs are unique, and a path has at most two entries, the current and the previous materialization, so events straddling a re-materialization still match. |
+stable) and start a new batch there. Each device-inode pair names one path. After a rotation or socket re-creation within one boot, a path may also keep its previous entry, different from the current one, only until events from before the change can no longer arrive (its sources' `max_delay_seconds`), and never across a boot, since freed inode numbers and device numbers are reused. |
 | `events` | array | Host sensor observations. |
 
 Everything except the elements of `events` is validated strictly and fails the
@@ -65,21 +65,22 @@ large to submit.
 | `mac` | string or null | See `telemetry/spec.md`. |
 | `target_inode` | object or null | Exactly `device` and `inode` of the object, encoded as in `decoy_inodes`. Sensors MUST supply it whenever the operation reached an object; it is null for a refused lookup or a missing object. |
 | `target_fs` | object or null | Exactly `type` (filesystem type, such as `proc` or `cgroup`) and `path` (path within that filesystem, without a leading `/`). |
-| `target_digest` | string or null | For `exec`, the SHA-256 of the file named by the exec (for a script, the script), computed from the exec'd file object at exec time (such as with `bpf_ima_file_hash` or an fs-verity digest), or null when that is unavailable, never hashed later by path. |
+| `target_digest` | string or null | For `exec`, the SHA-256 of the file named by the exec (for a script, the script), computed from the exec'd file object at exec time (such as with `bpf_ima_file_hash` with IMA's hash algorithm set to SHA-256), or null when that is unavailable, never hashed later by path; a null digest never matches, so `helper-exec` needs it. |
 | `written_digest` | string or null | For `write`, the SHA-256 of the bytes passed to that one `write(2)` call. |
-| `actor` | object | Exactly `process` (identity or null), `ancestry` (identities of the creation chain recorded when each process was created, parent first, each the task that created the next even under `CLONE_PARENT`, including kernel threads and unaffected by later reparenting), `helper_depth` (0 when the kernel created this process to run a user-mode helper through `call_usermodehelper`, never for init or other kernel-thread children; `n` when its nearest such ancestor is its `n`th; otherwise null), `executable` (the path of the file the process exec'd, reported like a path target, or null when only a `/proc/PID/root` form exists; for a script run directly, the script), `executable_digest` (64 lowercase hex SHA-256 of that file, computed from the exec'd file object at exec time, or null), `uid` (effective user ID in the initial user namespace, or null), `comm` (string or null), `environment_names` (array of strings or null), and `sandbox_id` (string or null). |
+| `actor` | object | Exactly `process` (identity or null), `ancestry` (identities of the creation chain recorded when each process was created, parent first, each the task that created the next even under `CLONE_PARENT`, including kernel threads and unaffected by later reparenting), `helper_depth` (0 when the kernel created this process to run a user-mode helper through `call_usermodehelper`, never for init or kernel threads; `n` when its nearest such ancestor is its `n`th; otherwise null), `executable` (the path of the file the process exec'd, reported like a path target, or null when only a `/proc/PID/root` form exists; for a script run directly, the script), `executable_digest` (64 lowercase hex SHA-256 of that file, computed from the exec'd file object at exec time, or null), `uid` (effective user ID in the initial user namespace, or null), `comm` (string or null), `environment_names` (array of strings or null), and `sandbox_id` (string or null). |
 
 Actions are `stat` (also `access`, `readlink`, and extended-attribute reads), `open`
 (read-only), `open-write`, `read`, `write`, `truncate`, `exec`, `delete`, `rename`,
 `link`, `attr` (changes of mode, owner, extended attributes, or timestamps), `mount`
 (a mount in the initial mount namespace placed or moved onto the target), `notify-mark` (an
-inotify or fanotify mark placed on the target whose mask reports opens, accesses, or
-closes without writing, seen by `security_path_notify`; sensors report no other
-marks, so systemd's path-unit marks, which watch only creation, moves, and deletion,
-never appear),
+inotify or fanotify inode mark placed on the target, seen by `security_path_notify`;
+on a directory, sensors report only marks whose mask reports opens, accesses, or
+closes without writing, so systemd's path-unit marks, whose masks never do, are not
+reported; mount and filesystem marks need host root and are not reported),
 `connect`, `credential-use`, and `heartbeat` (a liveness record, which never hits).
 A mount, remount, or `fsconfig` in any mount namespace that sets a cgroup
-`release_agent` option (all reach the `fs_context_parse_param` hook) is reported as a
+`release_agent` option (all reach the `fs_context_parse_param` hook, observed by a kernel-function probe or a
+BPF-LSM program returning `-ENOPARAM`, since returning 0 there consumes the option) is reported as a
 `write` with `target_fs` `{"type": "cgroup", "path": "release_agent"}`
 and `written_digest` the SHA-256 of the option's value. A successful `execve` yields
 one `exec` event, whatever interpreters it passes through.
@@ -110,9 +111,10 @@ watched ones, cannot turn a decoy hit into a sequence gap. Helper requests (seen
 `call_usermodehelper_exec`), execs by processes with a non-null `helper_depth`, and
 process-creation records likewise use capacity no other event class shares, never in
 a buffer that overwrites committed records (such as one created with
-`BPF_F_RB_OVERWRITE`). Sensors recognize a helper by how it was created (a process
-that is not a kernel thread, created by a kernel thread, other than init), since the
-`PF_UMH` flag never marked these helpers, and keep lineage in kernel-resident state
+`BPF_F_RB_OVERWRITE`). Sensors recognize a helper at its first exec, as a process
+other than init, created by a kernel thread (`kthreadd` or a worker), that execs through
+`kernel_execve`; the `PF_UMH` flag never marked these helpers, and before Linux 5.19 a
+helper is itself marked a kernel thread until that exec. Sensors keep lineage in kernel-resident state
 that survives a sensor restart (such as pinned maps and links).
 
 Sensors MUST report a path as an absolute path at which the same object is reachable
@@ -197,9 +199,9 @@ writing an unexpected value still alerts. `credential-use` and `helper-exec` hit
 never probe hits or suppressed, nor is a hit whose actor is a sandbox's runtime or
 harness process, descends from one, or has a non-null `helper_depth`, nor one whose
 `actor.process`, `ancestry`, or `helper_depth` was repaired, nor one whose
-`actor.environment_names` contains a name beginning with `LD_`, or `GCONV_PATH` or
-`GLIBC_TUNABLES`, which make the dynamic loader run other code inside a trusted
-executable. Every other hit is an alert.
+`actor.environment_names` was repaired or contains `LD_PRELOAD` or `LD_AUDIT`, which
+make the dynamic loader run other code inside a trusted executable (sensors take the
+names from the new image at exec, keeping these first when truncating). Every other hit is an alert.
 
 ## Result
 
