@@ -25,3 +25,4 @@ dist/
 .testmondata
 .testmondata-journal
 .testmondata.identity.json
+.litai-locks/
