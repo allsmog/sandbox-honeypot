@@ -249,7 +249,8 @@ empty, except that an event whose `target` is a path has a `target_inode` matchi
 source the scenario mentions, signed by the sensor (by the collector for
 `cloudtrail`), with null maximum silence and a maximum delay of 300 seconds. `authentication` is `off` and `max_clock_skew_seconds` is 300. `window` is
 `2026-10-30T00:00:00Z` to `2026-10-31T00:00:00Z`; times without a date are on
-2026-10-30; an event's `time` is `12:00:00Z`, `received` equals its `time`,
+2026-10-30; an event's `time` is `12:00:00Z`, `received` equals its `time` (a single time
+stated for an event, observed or received, sets both),
 `deployment_id` equals the watch's, `source` is `ebpf`, `sensor_instance` is `boot-1`,
 sequences number each source and instance's events 1, 2, … in index order, and
 unnamed events have IDs `u0`, `u1`, … by index. `context` is host name `ci-17`,
