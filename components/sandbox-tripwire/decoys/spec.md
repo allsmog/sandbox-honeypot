@@ -128,8 +128,15 @@ strings without whitespace, required on `kubernetes-node` and otherwise null).
 A **companion** is a sibling file a real asset would have; without it a decoy looks
 staged. `ssh-ed25519` has companion `LOCATION.pub` containing `public_key` and a line
 feed. `aws-access-key` has companion `config` in the same directory containing
-`[default]`, a line feed, `region = `, `aws_region`, and a line feed. Companions are
-not watched.
+`[default]`, a line feed, `region = `, `aws_region`, and a line feed.
+
+A **cover file** is operator-written dressing that makes a decoy the obvious next step,
+such as a runbook or a shell-history line that mentions it: `cover_files` holds objects
+with exactly `decoy_id` (a planted decoy), `path`, and `content`. Companions and cover
+files are not watched. A request is invalid when a `context` value, a custom decoy
+location, or a cover file path or content contains, ignoring case, `canary`,
+`honeypot`, `honeytoken`, `decoy`, or `tripwire`, because such words reveal the
+deception.
 
 Socket, endpoint, and kernel-interface decoys have no material and a null
 `canary_digest`; they are detected by contact alone.
@@ -141,7 +148,7 @@ Request fields: `operation` (`plan`); `deployment_id`; `runtime` (`gvisor`, `cap
 (`linux-host` or `kubernetes-node`); `host_environment` (`bare-metal` or `cloud-vm`);
 optional `seed` (see `component.md`); `context`; `sandbox_gateway` (address or null);
 `exposure`; `occupied`; `path_aliases`; `exclude`; `relocate`; `custom_decoys`;
-`epochs`; and `provided_credentials`.
+`epochs`; `provided_credentials`; and `cover_files`.
 
 `exposure` has exactly `paths` and `endpoints`. `paths` lists **host-side** paths any
 sandbox can reach: the host sources of bind mounts, shared folders (virtio-fs or 9p),
@@ -156,9 +163,12 @@ checked in this order and skipped with the first matching reason:
 1. `excluded`: its `decoy_id` is in `exclude`.
 2. `real-service`: it is `metadata-endpoint` on a `cloud-vm`, where that address is
    the real instance metadata service.
-3. `exposed`: it is not `reachable`, and its canonical path equals or lies beneath the
-   canonical form of an exposure path, or its canonical endpoint is exposed.
-4. `occupied`: its canonical location or a companion's canonical path equals or lies
+3. `exposed`: it is not `reachable`, and its canonical path, or that of one of its
+   companions or cover files, equals or lies beneath the canonical form of an exposure
+   path, or its canonical endpoint is exposed. A cover story the sandbox can read
+   would point a sandboxed attacker at the host.
+4. `occupied`: its canonical location or a companion's or cover file's canonical path
+   equals or lies
    beneath the canonical form of an occupied path, or its canonical endpoint equals an
    occupied endpoint.
 5. `unprovisioned`: it is an `aws-access-key` decoy without a provided credential.
@@ -167,7 +177,7 @@ Every other decoy is placed. The result has exactly `operation`, `warnings`
 (`seed-in-request` when applicable, otherwise empty), `watch`, `material` (one object
 per placed derived-credential decoy, in decoy order: `decoy_id`, `credential_format`,
 `epoch`, and that format's fields), `companions` (objects with exactly `decoy_id`,
-`path`, and `content`, in decoy order), and `skipped` (objects with exactly
+`path`, and `content`, in decoy order; each decoy's companions precede its cover files), and `skipped` (objects with exactly
 `decoy_id`, `location`, and `reason`, in decoy order).
 
 `watch` is the confidential, secret-free input to `evaluate`. It has exactly
@@ -199,3 +209,9 @@ runtime-managed state.
 - **WHEN** `plan` runs with request seed `SEED` for deployment `k8s-node-1`, runtime `kata`, host profile `kubernetes-node`, environment `bare-metal`, exclusion `["container-socket"]`, relocation of `runtime-control` to `/opt/kata/admin.sock`, custom decoy `ops-kubeconfig` of kind `credential-file` at `/home/ops/.kube/config` with technique `T1552.001` and format `kubeconfig-token`, and epoch 1 for `ops-kubeconfig`
 - **THEN** `watch.decoys` lists `ssh-private-key` (at `/root/.ssh/id_ed25519`), `metadata-endpoint`, `runtime-control` (at `/opt/kata/admin.sock`), `kubeconfig` (at `/etc/kubernetes/admin.conf`), `docker-api`, the five kernel interfaces, and `ops-kubeconfig` (epoch 1), and `skipped` lists `cloud-credentials` as `unprovisioned` then `container-socket` as `excluded`
 - **AND** the `ssh-private-key` fingerprint is `SHA256:7aoE+l0t+JNkUolH8Nm5Q9BV8ho7xPc9SqVM5nYyJQ0` with companion `/root/.ssh/id_ed25519.pub`, the `kubeconfig` token is `dsu5zv.c64q9jgo1id0wgj3` with server `https://10.0.0.1:6443`, and the `ops-kubeconfig` token is `1helzq.owosf7a9dcehe9jo` (`57s1n9.u205saks22kzy6dz` at epoch 0)
+
+### Scenario: Cover story
+
+- **WHEN** the gVisor cloud-VM plan also has a cover file for `cloud-credentials` at `/home/deploy/docs/RUNBOOK.md` with content `Release cache credentials: ~/.aws/credentials\n`
+- **THEN** `companions` lists `/home/deploy/.aws/config` and then the runbook with that content
+- **AND** with exposure path `/home/deploy/docs` added, `cloud-credentials` is skipped as `exposed`, because the sandbox could read its cover story

@@ -31,7 +31,8 @@ already has no host side effects.
   `sts get-caller-identity`, look like a real service account.
 - No decoy name, path, identity, or content contains a word or marker that reveals
   deception (such as canary, honey, decoy, trap, or tripwire), and no deployment
-  reuses the public test values in this specification.
+  reuses the public test values in this specification. `plan` rejects the most
+  revealing words in operator-supplied text (`decoys/spec.md`).
 
 ## Observation is passive
 

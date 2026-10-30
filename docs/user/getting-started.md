@@ -56,7 +56,9 @@ The application exposes one `run` entrypoint that takes a single JSON object.
    Kubernetes token). `companions` lists sibling files, such as `.pub` keys, to
    create beside the decoys. `watch` describes what to monitor; it holds no secrets but
    names the decoys, so keep it off the protected host. `skipped` explains each decoy
-   left out. Kernel-interface tripwires (`core_pattern`, `modprobe`, cgroup
+   left out. Add `cover_files` (a runbook, a shell-history line) to make a decoy the
+   obvious next step; `plan` rejects text with words like `honeypot` or `decoy`.
+   Kernel-interface tripwires (`core_pattern`, `modprobe`, cgroup
    `release_agent`, and others) need no files, only write monitoring. To rotate one
    decoy, raise its epoch.
 
@@ -65,20 +67,23 @@ The application exposes one `run` entrypoint that takes a single JSON object.
    endpoint decoys, record their device and inode numbers, then delete `material`.
    Point at least two independent host-side sensors (for example fanotify and eBPF)
    at the `watch` locations using notification-only mechanisms that never block or
-   deny access, number each sensor's events, and ship every event off the host
-   immediately. Nothing on the host may react visibly: the attacker must not learn
+   deny access, number and sign each sensor's events with its own key, and ship
+   every event off the host immediately, where the collector stamps its arrival time.
+   Record environment variable names (never values) of processes that touch decoys. Nothing on the host may react visibly: the attacker must not learn
    they touched a decoy. Enable `LogLevel VERBOSE` on SSH servers and a token webhook
    for Kubernetes so credential use is logged. Run a self-test prober that touches
    every decoy on a jittered schedule without changing file timestamps. Version 0.1.0
    does not do this for you.
 
-4. **Evaluate events** off the host. Send `watch`, each sandbox's runtime process
-   identities (PID and start ticks), maintenance suppressions (by executable and uid),
+4. **Evaluate events** off the host, with sensor keys in
+   `SANDBOX_HONEYPOT_SENSOR_KEYS`. Send `watch`, each sandbox's runtime and agent
+   harness process identities (PID and start ticks), signatures of the harnesses you
+   run, maintenance suppressions (by executable and uid),
    the prober, which decoys two sensors must confirm, an observation window, decoy
    inodes, and sensor events as `{"operation": "evaluate", ...}`. The result reports
-   `breached` with critical alerts that separate escaped processes, kernel-launched
-   payloads, runtime-mediated contact, and escape attempts, and `degraded` when events
-   were malformed, duplicated, or dropped, a decoy's monitoring broke, or one sensor
+   `breached` with critical alerts that separate escaped processes, harness escapes,
+   kernel-launched payloads, runtime-mediated contact, and escape attempts, and `degraded` when events
+   were malformed, forged, duplicated, delayed, or dropped, a decoy's monitoring broke, or one sensor
    saw a contact another missed.
 
 ---

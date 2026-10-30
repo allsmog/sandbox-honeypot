@@ -16,6 +16,7 @@ specification_roots:
   - "decoys/spec.md"
   - "evaluation/spec.md"
   - "stealth/spec.md"
+  - "telemetry/spec.md"
 authoring_inputs:
   - kind: specification-to-source-skill
     uri: skills/specification-to-source/portable-application-implementation/SKILL.md
@@ -92,6 +93,10 @@ The tripwire's value depends on these properties:
 6. Escapes that never touch bait are still seen: writes to kernel interfaces that
    hijack host-root helpers are tripwires, and processes those helpers launch are
    attributed as escapes.
+7. Escapes that need no exploit are still seen: code an agent harness runs outside
+   its sandbox is attributed to that harness.
+8. Telemetry is authenticated per sensor, so a forged or altered event is rejected
+   rather than trusted.
 
 Version 0.1.0 is a pure, deterministic decision engine. It MUST NOT read or write the
 filesystem, open network listeners, read the clock, or contact any network. Its only
@@ -103,8 +108,9 @@ Component's); they consume the `plan` result and feed observed events into
 ## Threat model
 
 The tripwire detects a workload that escapes its sandbox to the host, as any user, and
-touches host assets or hijacks a kernel helper; a sandbox reaching for host SSH; and
-the use of decoy credentials wherever a monitored log records it. Attackers are
+touches host assets or hijacks a kernel helper; an agent harness persuaded to run code
+outside its sandbox; a sandbox reaching for host SSH; and the use of decoy credentials
+wherever a monitored log records it. Attackers are
 assumed to be capable AI agents that know published escape techniques and actively
 look for decoys. It assumes:
 
@@ -120,9 +126,11 @@ look for decoys. It assumes:
   touch decoys without revealing their content; running them is equivalent to
   holding a suppression.
 
-It does not protect the integrity of the event pipeline, and probes do not prove that
-the external logs recording `credential-use` (cloud audit trails, SSH logs, token
-webhooks) are healthy.
+It never runs code on the attacker's side, even to attribute them: identification is
+passive and uses only what host sensors recorded. Event authentication protects the
+pipeline from unprivileged forgers and a compromised collector, not from an attacker
+who has stolen a sensor key, and probes do not prove that the external logs recording
+`credential-use` (cloud audit trails, SSH logs, token webhooks) are healthy.
 
 ## Application contract
 
@@ -133,8 +141,9 @@ receives the complete JSON argument array in one command-line token, so its valu
 `[request]`. The result is one JSON object written to standard output.
 
 The decoy catalog, locations, credential material, and `plan` are specified in
-`decoys/spec.md`; `evaluate` is specified in `evaluation/spec.md`; the requirements
-that keep detection invisible to the attacker are in `stealth/spec.md`.
+`decoys/spec.md`; `evaluate` is specified in `evaluation/spec.md`, with event
+authentication and tamper evidence in `telemetry/spec.md`; the requirements that keep
+detection invisible to the attacker are in `stealth/spec.md`.
 
 Every object in a request is strict: unknown fields, missing required fields, and
 values of the wrong type are invalid. Identifier strings (`deployment_id`,
@@ -158,6 +167,8 @@ secret except as a test convenience:
   secrets, but confidential because it names the decoys; see `stealth/spec.md`).
   `evaluate` takes only `watch`, which identifies credentials by SHA-256 digest.
   Provided credentials enter `plan` only as digests.
+- Sensor keys reach `evaluate` through `SANDBOX_HONEYPOT_SENSOR_KEYS`, with the same
+  test-only request fallback (`telemetry/spec.md`).
 
 ### Failures
 
@@ -171,7 +182,9 @@ the SHA-256 digest of `test-access-key-id`,
 `ba2ec3831ba77da700ae57847f4ab9f6f3cce8658ea18257e814a7aca5e00f6a`. Decoy credentials
 appear only as identifiers derived from `SEED`; realistic literal keys would be flagged
 by secret scanners as leaks. Unstated list fields are empty; unstated `probe`,
-`corroboration`, `sandbox_gateway`, `sequence`, and `target_inode` are null; unstated
+`corroboration`, `sandbox_gateway`, `sequence`, `target_inode`, `mac`, and
+`environment_names` are null; unstated `authentication` is `off`,
+`max_clock_skew_seconds` is 300, and `received` equals the event's `time`; unstated
 `window` is `2026-10-30T00:00:00Z` to `2026-10-31T00:00:00Z`; and unstated `context`
 is organization `acme`, service user `deploy`, AWS region `us-east-1`, and, on
 Kubernetes nodes, cluster `prod-east` with API server `10.0.0.1:6443` (otherwise
@@ -220,3 +233,8 @@ boundary.
 
 - **WHEN** `plan` receives a relocation for `core-pattern`, or runs for host profile `kubernetes-node` with a null `context.cluster_name`
 - **THEN** it rejects the request at `/relocate/0/decoy_id` or `/context/cluster_name` respectively
+
+#### Scenario: Revealing cover text or missing sensor keys
+
+- **WHEN** `plan` receives a cover file whose content mentions a `honeypot`, or `evaluate` requires authentication with neither request nor environment sensor keys
+- **THEN** it rejects the request at `/cover_files/0/content` or `/sensor_keys` respectively
