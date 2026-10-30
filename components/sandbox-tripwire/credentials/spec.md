@@ -51,7 +51,7 @@ from a decoy a later plan no longer places, is still a canary, so it stays watch
 the digests of epochs 0 to `e - 1`, and also of epoch `e` when the decoy is not placed;
 for each included `aws-access-key` decoy that is not placed, its provided digest; then
 each `retired_canaries` entry (objects with exactly `decoy_id`, `technique`, and
-`canary_digest`) in request order. Its `decoy_id` names a catalog or custom decoy with
+`canary_digest`) in request order. Its `decoy_id` names a credential-file catalog or custom decoy with
 a null `technique`, or a former custom decoy (an identifier of the custom form that is
 neither) with that decoy's technique, so credentials of a removed decoy stay watched.
 To rotate a provided key, keep the old deny-all key in IAM, so its use is still
@@ -89,7 +89,9 @@ A **cover file** is operator-written dressing that makes a decoy the obvious nex
 such as a README or runbook that mentions it: `cover_files` holds objects
 with exactly `decoy_id` (an included planted decoy), `path`, and `content`. Cover files
 are not watched, since people may read them. A cover file the sandbox can read would
-point a sandboxed attacker at the host, so it makes its decoy exposed.
+point a sandboxed attacker at the host, so it makes its decoy exposed. Cover files with
+the same path and content are one file shared by their decoys: they do not collide,
+and `companions` lists it once, under the first.
 
 `companions` in the `plan` result lists the files to create for placed decoys: objects
 with exactly `decoy_id`, `path`, `content`, and `watched`, in decoy order, each decoy's

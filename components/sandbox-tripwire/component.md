@@ -131,6 +131,9 @@ decoys. It assumes:
   kernel interfaces, the expected written value, and never suppress a shell or
   general-purpose interpreter, which would trust every script it runs, or a setuid,
   setgid, or file-capability executable, which any user could run as its owner.
+  Likewise expected helpers are matched by file, not arguments: a kernel write
+  primitive that points a helper setting at an expected helper with hostile arguments
+  (such as `kmod insmod`) is caught only if it writes a kernel interface.
 
 It never runs code on the attacker's side, even to attribute them: identification is
 passive and uses only what host sensors recorded.
@@ -187,8 +190,9 @@ checked in this order, each reported at the field named:
 6. The alias set is invalid (the later of the two overlapping entries, at its `alias`
    if that overlaps, otherwise its `target`).
 7. The footprints of two relocated or custom decoys collide, or two items of one of
-   their footprints do (the later relocation's or custom decoy's `location`, or the later
-   cover file's `path`).
+   their footprints do (at the later of the two request items, taking `relocate`,
+   then `custom_decoys`, then `cover_files`, each in index order: its `location` or
+   `path`).
 8. A digest repeats among current and retired canaries (the later digest field).
 
 Identifier strings (`deployment_id`, `sandbox_id`, `event_id`, `source`,

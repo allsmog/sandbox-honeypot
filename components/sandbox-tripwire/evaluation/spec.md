@@ -30,7 +30,7 @@ equal only when both fields are, so a reused PID never matches.
 | `harness_signatures` | array | See `attribution/spec.md`. |
 | `sources`, `probe`, `corroboration`, `authentication`, `sensor_keys`, `max_clock_skew_seconds`, `carry` | | See `telemetry/spec.md`; `sensor_keys` is optional. |
 | `window` | object | Exactly `start` and `end` timestamps, `end` after `start`. It contains the events **received** from `start` (inclusive) to `end` (exclusive). |
-| `decoy_inodes` | array | Objects with exactly `decoy_id` (a placed planted path decoy), `path` (its canonical location or one of its `companion_paths`), `device` (the `st_dev` value `stat(2)` returns), and `inode` (`st_ino`) of the decoys as currently materialized; sensors report the same encoding, including the anonymous devices of btrfs subvolumes and overlay filesystems. Inode numbers are reused once freed, so operators MUST record new entries whenever decoys are re-materialized (each boot for decoys on `tmpfs`, each rotation) and start a new batch there. Paths and device-inode pairs are unique. |
+| `decoy_inodes` | array | Objects with exactly `decoy_id` (a placed planted path decoy), `path` (its canonical location or one of its `companion_paths`), `device` and `inode` (decimal strings without leading zeros of the `st_dev` and `st_ino` values `stat(2)` returns, which can exceed 2^53) of the decoys as currently materialized; sensors report the same encoding, including the anonymous devices of btrfs subvolumes and overlay filesystems. Inode numbers are reused once freed, so operators MUST record new entries whenever decoys are re-materialized (each boot for decoys on `tmpfs`, each rotation) and start a new batch there. Paths and device-inode pairs are unique. |
 | `events` | array | Host sensor observations. |
 
 Everything except the elements of `events` is validated strictly and fails the
@@ -59,9 +59,9 @@ large to submit.
 | `sensor_instance` | string | Identifies one run of the signer, such as a boot ID plus start time. |
 | `sequence` | integer | The signer's counter for this instance, incremented for every event it ships. |
 | `action` | string | One of the actions below. |
-| `target` | string | What was acted on: a path, an address endpoint, or for `credential-use` the lowercase hexadecimal SHA-256 of the observed identifier, hashed by the collector so no credential reaches the request. For `rename`, `link`, and `delete`, the path of the existing object before the operation; a `rename` or `link` also yields an event whose target is the destination, with the inode of any object it replaces (for an exchange, each object's). |
+| `target` | string | What was acted on: a path, an address endpoint, or for `credential-use` the lowercase hexadecimal SHA-256 of the observed identifier, hashed by the collector so no credential reaches the request. For `rename`, `link`, and `delete`, the path of the existing object before the operation; a `rename` or `link` also yields an event whose target is the destination and whose `target_inode` is that of any object it replaces (for an exchange, each object's). |
 | `mac` | string or null | See `telemetry/spec.md`. |
-| `target_inode` | object or null | Exactly `device` and `inode` of the object, encoded as in `decoy_inodes`. Sensors MUST supply it whenever `target` is a path naming an existing object. |
+| `target_inode` | object or null | Exactly `device` and `inode` of the object, encoded as in `decoy_inodes`. Sensors MUST supply it whenever the operation reached an object; it is null for a refused lookup or a missing object. |
 | `target_fs` | object or null | Exactly `type` (filesystem type, such as `proc` or `cgroup`) and `path` (path within that filesystem, without a leading `/`). |
 | `target_digest` | string or null | For `exec`, the SHA-256 of the file named by the exec (for a script, the script), computed from the exec'd file object at exec time. |
 | `written_digest` | string or null | For `write`, the SHA-256 of the bytes passed to that one `write(2)` call. |
@@ -70,9 +70,13 @@ large to submit.
 Actions are `stat` (also `access`, `readlink`, and extended-attribute reads), `open`
 (read-only), `open-write`, `read`, `write`, `truncate`, `exec`, `delete`, `rename`,
 `link`, `attr` (changes of mode, owner, extended attributes, or timestamps), `mount`
-(a mount in the initial mount namespace placed or moved onto the target; one setting a cgroup `release_agent` option
-is also reported as a `write` with that `target_fs`),
+(a mount in the initial mount namespace placed or moved onto the target), `notify-mark` (an
+inotify or fanotify mark placed on the target, seen by `security_path_notify`),
 `connect`, `credential-use`, and `heartbeat` (a liveness record, which never hits).
+A mount or remount in any mount namespace that sets a cgroup `release_agent` option is
+reported as a `write` with `target_fs` `{"type": "cgroup", "path": "release_agent"}`
+and `written_digest` the SHA-256 of the option's value. A successful `execve` yields
+one `exec` event, whatever interpreters it passes through.
 Sensors MUST observe through LSM or kernel-function hooks on the object (such as
 `security_file_open`, `security_inode_getattr`, `security_unix_stream_connect` for Unix
 sockets, and `security_socket_connect` for network endpoints), not system-call
@@ -91,9 +95,10 @@ and raw packets bypass connect hooks. Such arrival sources report action `connec
 the connecting sandbox in `actor.sandbox_id` when they can tell it, and, for a peer
 socket on the same host, `actor` filled from the process owning that socket, so probes
 and suppressions match them. Hooks always allow the operation (`stealth/spec.md`).
-Sensors MUST keep events on the watched set in buffer capacity that other activity
-cannot exhaust, so flooding ordinary files cannot turn a decoy hit into a sequence
-gap.
+Sensors MUST drop in the kernel events that can never hit (actions other than `open-write`,
+`write`, and `truncate` on kernel interfaces, `stat` on decoys in `ignore_stat`) and give each watched object
+its own reserved buffer capacity, so flooding other files, or harmless actions on
+watched ones, cannot turn a decoy hit into a sequence gap.
 
 Sensors MUST report a path as the kernel-resolved absolute path of the object from the
 root of the initial mount namespace (as `d_path` resolves it against PID 1's root, so
@@ -113,16 +118,17 @@ An event with an invalid core field is **rejected** and recorded at the first in
 field. An event with a valid core but an invalid detail field is evaluated with that
 field treated as null (`actor` fields individually; `ancestry` as empty) and recorded
 in `repaired`, so a crafted file name or environment cannot turn an attacker's own hit
-into a rejection. A path event naming an existing object whose `target_inode` is null or missing, and an unknown
-event field (which is dropped), are recorded in `repaired` the same way, since a
-missing inode leaves bind mounts and hard links unmatched. A repeated object key makes
+into a rejection. An unknown event field is dropped and recorded in `repaired` the same way. A repeated object key makes
 the request invalid at that object, except inside an element of `events`, where it
 rejects that event at that object, so one forged event cannot void a batch. Events sharing an `event_id` are all evaluated; the ID is listed in
 `duplicate_event_ids`, and each of their alert IDs gains `#` and the event's index.
 
 ## Hits
 
-For matching, a path target is canonicalized under `watch.path_aliases`, and an
+For matching, a path target is normalized (repeated `/` collapsed, a trailing `/`
+removed, then `.` and `..` resolved lexically) and canonicalized under
+`watch.path_aliases`; suppression and probe executables are canonicalized the same way
+and, like `expected_helpers`, MUST name resolved files. An
 endpoint target is canonicalized with `0.0.0.0` rewritten to `127.0.0.1` and `[::]` to
 `[::1]`, the loopback addresses Linux connects them to. An accepted event **hits**:
 
@@ -140,7 +146,8 @@ endpoint target is canonicalized with `0.0.0.0` rewritten to `127.0.0.1` and `[:
   `heartbeat` (and `stat` for decoys in `ignore_stat`), and either `target_inode`
   equals a `decoy_inodes` entry of that decoy (catching hard links and bind mounts) or
   the canonical target equals its `canonical_location` or one of its
-  `companion_paths`, or for `mount` is the parent directory of one of them; or
+  `companion_paths`, or for `mount` or `notify-mark` is the parent directory of one of them;
+  or
 - an endpoint decoy, when `action` is `connect` and the canonical target equals its
   `canonical_location`.
 

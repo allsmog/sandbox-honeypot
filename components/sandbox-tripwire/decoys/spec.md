@@ -72,7 +72,8 @@ address escaping agents have used to reach host SSH. No legitimate workload conn
 to it, so it is planted even where egress allows it (`reachable` true); every other
 decoy has `reachable` false. Where a real SSH server already serves that endpoint, the
 decoy is not skipped as occupied: it is placed with `listener` false, and only
-connections to the real server are watched. Every other planted decoy has `listener`
+connections to the real server are watched, so operators MUST block sandbox traffic
+to the host's other addresses on that port. Every other planted decoy has `listener`
 true, and watched decoys have `listener` false.
 
 **Kernel interfaces** are matched by path and by filesystem, because published escapes
@@ -153,7 +154,8 @@ IDs); optional `seed`; `context`;
 `exposure` has exactly `paths` and `endpoints`. `paths` lists **host-side** paths any
 sandbox can reach: the host sources of bind mounts, shared folders (virtio-fs or 9p),
 overlay layers, and image or disk backing files, never paths as seen inside the guest,
-plus paths an agent harness reads on the host. `endpoints` lists exposure endpoints
+plus paths an agent harness reads on the host. Exposure and occupied paths MUST be
+resolved or aliased like footprint paths. `endpoints` lists exposure endpoints
 allowed by sandbox egress policy. `occupied` lists paths (covering everything beneath
 them) and address endpoints in real use; an occupied endpoint with address `0.0.0.0`
 or `[::]` covers every address on its port. `occupied` MUST list existing files a

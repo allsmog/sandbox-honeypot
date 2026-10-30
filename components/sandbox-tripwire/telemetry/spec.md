@@ -34,7 +34,7 @@ loss appears as a sequence gap.
   hexadecimal characters, read from `SANDBOX_HONEYPOT_SENSOR_KEYS` when the request has
   no `sensor_keys` field. When `authentication` is `required`, exactly one of the two
   MUST be present and give a key for every declared source, otherwise the request is
-  invalid at `/sensor_keys`; a request `sensor_keys` adds the warning
+  invalid at `/sensor_keys`, as are keys for undeclared sources; a request `sensor_keys` adds the warning
   `keys-in-request`. When `off`, neither is read and a request `sensor_keys` is
   ignored without a warning. Keys MUST be unique per host and
   source, so a key stolen on one host cannot speak for another.
@@ -60,9 +60,11 @@ exactly `window_end` (that window's `end`) and:
 - `sequences`: objects with exactly `source`, `sensor_instance`, `highest`,
   `missing` (at most 16 objects with exactly `from` and `to`, the newest kept), and
   `last_received`, one per instance, keeping the 4 most recently received instances
-  of each declared source;
-- `last_seen`: objects with exactly `source` and `received`;
-- `last_probe`: objects with exactly `decoy_id` and `received`;
+  of each declared source (ties by instance);
+- `last_seen`: objects with exactly `source` and `received`, for declared sources
+  with a non-null `max_silence_seconds`;
+- `last_probe`: objects with exactly `decoy_id` and `received`, empty when `probe` is
+  null;
 - `recent_hits` and `pending`: objects with exactly `event_id`, `decoy_id`, `source`,
   `time`, and `received`, plus `missing_sources` for `pending` (Corroboration), with
   at most 16 `recent_hits` per decoy and source (the latest kept) and 16 `pending`
@@ -91,7 +93,7 @@ from `highest` 0, and records dropped right after a restart form a gap after 0:
   The event is still evaluated.
 
 An instance first seen while another instance of the same source is known, from
-`carry` or earlier in the batch, is a **sensor restart** (`source`,
+`carry` or at a lower index in the batch, is a **sensor restart** (`source`,
 `sensor_instance`), since a killed sensor restarts its counter.
 
 ## Silence
@@ -111,7 +113,11 @@ When it is not null, every planted decoy is probed: take its carried `last_probe
 (or `window.start`, carried likewise for every planted decoy), the `received` times of
 its probe hits on its own location (not its companions), and `window.end`, in
 instant order; every consecutive pair more than `max_interval_seconds` apart is a
-**watch gap** (`decoy_id`, `from`, `to`). Watched decoys are not probed, because
+**watch gap** (`decoy_id`, `from`, `to`). Probes SHOULD check a file decoy with `stat`,
+which raises no inotify event, and one in `ignore_stat` with `open`. A probe of an
+endpoint decoy counts only when every arrival source for it fills `actor` for local
+peers; operators MUST exclude probe connections from any that cannot, such as
+conntrack or SSH server logs. Watched decoys are not probed, because
 writing a kernel interface changes the host; silence gaps cover their sensors and the
 external logs that record `credential-use`.
 

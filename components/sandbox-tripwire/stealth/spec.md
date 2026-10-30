@@ -68,6 +68,10 @@ no host side effects, and `plan` enforces the parts it can check.
 
 ## Decoy knowledge stays off the host
 
+- Decoys sit where no filesystem snapshot readable on the host (btrfs, ZFS
+  `.zfs/snapshot`, LVM) captures them, since a snapshot copies them to unwatched paths
+  and dates their appearance. Exclusions that keep decoys out of backups and scanners
+  name broad paths, such as the dormant account's whole home, and are root-only.
 - `plan` and `evaluate` run on a system outside the protected host. `material` exists
   on the protected host only while decoys are materialized. `watch` holds no
   credential secrets but is confidential, because it lists which assets are decoys.
@@ -96,7 +100,10 @@ from them rather than suppressing the backup tool, which copies decoys elsewhere
 access (exclude their processes in the sensor); package upgrades that change a
 suppressed executable's or expected helper's digest (add the new digest first);
 monitoring agents that probe the Docker socket, Docker API, or metadata endpoint
-(leave those opt-in decoys out); boot-time writers of kernel interfaces, such as
+(leave those opt-in decoys out); the materializer and decoy listeners themselves,
+which stat, rotate, re-create, and change attributes of decoys (suppress them or
+exclude them in the sensor); legitimate kernel helpers such as `request-key` handlers,
+`systemd-coredump`, apport, and orderly poweroff (list them in `expected_helpers`); boot-time writers of kernel interfaces, such as
 `systemd-sysctl` and crash handlers writing `core_pattern`, `systemd-binfmt` writing
 `register`, and systemd on cgroup v1 writing `release_agent` (suppress each with its
 `value_digest`); containers outside any sandbox that share the
