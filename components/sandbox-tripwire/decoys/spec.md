@@ -73,8 +73,8 @@ to it, so it is planted even where egress allows it (`reachable` true); every ot
 decoy has `reachable` false. Where a real SSH server already serves that endpoint, the
 decoy is not skipped as occupied: it is placed with `listener` false, and only
 connections to the real server are watched, so operators MUST block sandbox traffic
-to the host's other addresses on that port. Every other planted decoy has `listener`
-true, and watched decoys have `listener` false.
+to the host's other addresses on that port. Every other socket and endpoint decoy
+has `listener` true; credential files and watched decoys have `listener` false.
 
 **Kernel interfaces** are matched by path and by filesystem, because published escapes
 mount a fresh `proc` or `cgroup` filesystem elsewhere and write it there. Each has a
@@ -96,7 +96,8 @@ memory and never write a file.
 - `exclude` lists catalog IDs to leave out. Every entry MUST be a catalog ID; an ID
   that is not included has no effect.
 - `include` lists opt-in catalog IDs; any other entry is invalid.
-- `relocate` moves included planted catalog decoys: objects with exactly `decoy_id`
+- `relocate` moves included planted catalog decoys other than `gateway-ssh`, whose
+  location follows `sandbox_gateway`: objects with exactly `decoy_id`
   and `location` (of the decoy's location type). It replaces the layout choice.
 - `custom_decoys` appends decoys after the catalog, in request order: objects with
   exactly `decoy_id` (lowercase ASCII letters and digits in hyphen-separated groups,
@@ -187,7 +188,7 @@ decoys collide, or two items of one of their footprints do; such a collision wit
 layout candidate's footprint makes it ineligible and skips it as `collision` (see `component.md` for the reported
 field). The result has exactly `operation`, `warnings` (in this order when
 applicable: `seed-in-request`, and `public-socket-name` when `runtime-control` is
-placed at a catalog candidate), `watch`, `material`, `companions`, and `skipped`
+placed at any runtime's catalog candidate, compared canonically), `watch`, `material`, `companions`, and `skipped`
 (objects with exactly `decoy_id`, `location`, and `reason`, in decoy order);
 `material` and `companions` are defined in `credentials/spec.md`.
 

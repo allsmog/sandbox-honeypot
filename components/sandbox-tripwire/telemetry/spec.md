@@ -35,8 +35,11 @@ loss appears as a sequence gap.
   no `sensor_keys` field. When `authentication` is `required`, exactly one of the two
   MUST be present and give a key for every declared source, otherwise the request is
   invalid at `/sensor_keys`, as are keys for undeclared sources; a request `sensor_keys` adds the warning
-  `keys-in-request`. When `off`, neither is read and a request `sensor_keys` is
-  ignored without a warning. Keys MUST be unique per host and
+  `keys-in-request`. When `off`, the environment is not read and a request `sensor_keys`,
+  still checked for shape, is otherwise ignored without a warning. A request
+  `sensor_keys` whose value is not 64 lowercase hexadecimal characters is invalid at
+  that value; an environment value that is not such an object is invalid at
+  `/sensor_keys`. Keys MUST be unique per host and
   source, so a key stolen on one host cannot speak for another.
 - A key is bound to one source and the signed event names its deployment and
   sequence, so an event cannot claim another source, move between deployments, or be
@@ -120,10 +123,16 @@ its probe hits on its own location (by path, or by inode through the location's
 binding; not its companions), and `window.end`, in
 instant order; every consecutive pair more than `max_interval_seconds` apart is a
 **watch gap** (`decoy_id`, `from`, `to`). Probes SHOULD check a file decoy with `stat`,
-which raises no inotify event, and one in `ignore_stat` with `open`. Operators MUST
-probe an endpoint decoy only when every arrival source for it fills `actor` for local
-peers, and MUST NOT list sources that cannot (such as conntrack or SSH server logs) in
-its corroboration. Watched decoys are not probed, because
+which raises no inotify event, and one in `ignore_stat` with `open`. Decoys in
+`ignore_stat` are probed with `open`, which a user able to read their directory can
+see through inotify, part of what `ignore_stat` trades away. Endpoint probes MUST come
+from a dedicated network namespace only root can enter, through a veth whose host end
+is the only interface allowed to carry the probe source prefix; the host drops packets
+with a source in that prefix arriving on any other interface. An unprivileged process
+cannot send from that prefix, so every arrival source, including conntrack and SSH
+server logs, can recognize probe connections by source address and report them with
+the probe's identity (`evaluation/spec.md`); firewall marks and key fingerprints
+alone never qualify. Watched decoys are not probed, because
 writing a kernel interface changes the host; silence gaps cover their sensors and the
 external logs that record `credential-use`.
 

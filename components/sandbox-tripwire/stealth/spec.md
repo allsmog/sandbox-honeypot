@@ -113,4 +113,11 @@ exclude them in the sensor the same way); legitimate kernel helpers such as `req
 `register`, and systemd on cgroup v1 writing `release_agent` (suppress each with its
 `value_digest`); containers outside any sandbox that share the
 sandbox network's bridge and reach `gateway-ssh`; and rootless container tooling that
-registers `binfmt_misc` formats in its own user namespace on recent kernels.
+registers `binfmt_misc` formats in its own user namespace on recent kernels;
+privileged CI steps that install emulators, such as `docker/setup-qemu-action` with
+explicit platforms or `reset` (register emulators once at boot through `binfmt.d`
+instead); on systemd before 258 in the pure cgroup v1 layout, the kernel running
+`systemd-cgroups-agent` as a helper whenever a cgroup empties (list it in
+`expected_helpers`); disk-usage scanners and desktop indexers that stat everything
+under `/home`; and indexers or on-access scanners that watch decoy directories for
+opens.

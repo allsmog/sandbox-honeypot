@@ -22,16 +22,16 @@ equal only when both fields are, so a reused PID never matches.
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `operation` | string | `evaluate`. |
-| `watch` | object | A `watch` object from a `plan` result. |
+| `watch` | object | A `watch` object from a `plan` result, checked for shape and for the consistency in validation rule 10 (`component.md`) and otherwise trusted as `plan` output. |
 | `sandboxes` | array | Objects with exactly `sandbox_id`, `runtime_processes` (nonempty identities of that sandbox's runtime on the host, such as the gVisor sandbox and gofer or the VMM, and every host process carrying its network or file I/O, such as slirp4netns, passt or pasta, gvproxy, and virtiofsd), and `harness_processes` (identities of the agent harness that drives it, possibly empty). Sandbox IDs and runtime identities are unique, and a harness identity is never also a runtime identity; one harness identity may be listed under several sandboxes it drives. Operators keep listing a sandbox after it ends while any process descended from its runtime or harness may still live (until the sensor reports none, or reboot), because escaped descendants can outlive it. |
-| `suppressions` | array | Trusted maintenance: objects with exactly `decoy_id` (in `watch.decoys`), `executable` (path), `executable_digests` (nonempty array of 64 lowercase hex SHA-256 digests of acceptable versions of the executable file), `uid` (integer), and `value_digest` (64 lowercase hex for a kernel interface, null otherwise). |
+| `suppressions` | array | Trusted maintenance: objects with exactly `decoy_id` (in `watch.decoys`), `executable` (path, or null to match any path, allowed only with `uid` 0 for root tools whose path varies, such as containerized scanners; a path also blocks tricks that load code relative to the executable), `executable_digests` (nonempty array of 64 lowercase hex SHA-256 digests of acceptable versions of the executable file), `uid` (integer), and `value_digest` (64 lowercase hex for a kernel interface, null otherwise). |
 | `expected_helpers` | array | Executables the kernel legitimately launches as user-mode helpers, checked at every exec by a depth-0 process and never a shell or general-purpose interpreter: objects with exactly `path` (the fully resolved file the kernel execs: on merged-`/usr` systems `/usr/bin/kmod`, not `/sbin/modprobe`) and `digests` (nonempty array of SHA-256 digests of acceptable versions of that file; for a script, of the script, not its interpreter). Operators add a new version's digest before upgrading the package that ships it. |
 | `ignore_stat` | array of strings | Planted path decoys in `watch.decoys` for which `stat` on the decoy or its companions is not a hit, where people routinely long-list the directory. This trades away detection of metadata reconnaissance on those decoys. |
 | `harness_signatures` | array | See `attribution/spec.md`. |
 | `sources`, `probe`, `corroboration`, `authentication`, `sensor_keys`, `max_clock_skew_seconds`, `carry` | | See `telemetry/spec.md`; `sensor_keys` is optional. |
 | `window` | object | Exactly `start` and `end` timestamps, `end` after `start`. It contains the events **received** from `start` (inclusive) to `end` (exclusive). |
 | `decoy_inodes` | array | Objects with exactly `decoy_id` (a placed planted path decoy), `path` (its canonical location or one of its `companion_paths`), `device` and `inode` (decimal strings without leading zeros of the `st_dev` and `st_ino` values `stat(2)` returns, which can exceed 2^53) of the decoys as currently materialized; sensors report the same encoding, including the anonymous devices of btrfs subvolumes and overlay filesystems. Inode numbers are reused once freed, so operators MUST record new entries at every boot (device numbers of `tmpfs`, btrfs, overlay, and device-mapper filesystems change across boots) every rotation, and whenever a listener re-creates its socket (socket activation keeps it
-stable) and start a new batch there. Paths and device-inode pairs are unique. |
+stable) and start a new batch there. Device-inode pairs are unique, and a path has at most two entries, the current and the previous materialization, so events straddling a re-materialization still match. |
 | `events` | array | Host sensor observations. |
 
 Everything except the elements of `events` is validated strictly and fails the
@@ -65,7 +65,7 @@ large to submit.
 | `mac` | string or null | See `telemetry/spec.md`. |
 | `target_inode` | object or null | Exactly `device` and `inode` of the object, encoded as in `decoy_inodes`. Sensors MUST supply it whenever the operation reached an object; it is null for a refused lookup or a missing object. |
 | `target_fs` | object or null | Exactly `type` (filesystem type, such as `proc` or `cgroup`) and `path` (path within that filesystem, without a leading `/`). |
-| `target_digest` | string or null | For `exec`, the SHA-256 of the file named by the exec (for a script, the script), computed from the exec'd file object at exec time. |
+| `target_digest` | string or null | For `exec`, the SHA-256 of the file named by the exec (for a script, the script), computed from the exec'd file object at exec time (such as with `bpf_ima_file_hash` or an fs-verity digest), or null when that is unavailable, never hashed later by path. |
 | `written_digest` | string or null | For `write`, the SHA-256 of the bytes passed to that one `write(2)` call. |
 | `actor` | object | Exactly `process` (identity or null), `ancestry` (identities of the creation chain recorded when each process was created, parent first, each the task that created the next even under `CLONE_PARENT`, including kernel threads and unaffected by later reparenting), `helper_depth` (0 when the kernel created this process to run a user-mode helper through `call_usermodehelper`, never for init or other kernel-thread children; `n` when its nearest such ancestor is its `n`th; otherwise null), `executable` (the path of the file the process exec'd, reported like a path target, or null when only a `/proc/PID/root` form exists; for a script run directly, the script), `executable_digest` (64 lowercase hex SHA-256 of that file, computed from the exec'd file object at exec time, or null), `uid` (effective user ID in the initial user namespace, or null), `comm` (string or null), `environment_names` (array of strings or null), and `sandbox_id` (string or null). |
 
@@ -73,10 +73,14 @@ Actions are `stat` (also `access`, `readlink`, and extended-attribute reads), `o
 (read-only), `open-write`, `read`, `write`, `truncate`, `exec`, `delete`, `rename`,
 `link`, `attr` (changes of mode, owner, extended attributes, or timestamps), `mount`
 (a mount in the initial mount namespace placed or moved onto the target), `notify-mark` (an
-inotify or fanotify mark placed on the target, seen by `security_path_notify`),
+inotify or fanotify mark placed on the target whose mask reports opens, accesses, or
+closes without writing, seen by `security_path_notify`; sensors report no other
+marks, so systemd's path-unit marks, which watch only creation, moves, and deletion,
+never appear),
 `connect`, `credential-use`, and `heartbeat` (a liveness record, which never hits).
-A mount or remount in any mount namespace that sets a cgroup `release_agent` option is
-reported as a `write` with `target_fs` `{"type": "cgroup", "path": "release_agent"}`
+A mount, remount, or `fsconfig` in any mount namespace that sets a cgroup
+`release_agent` option (all reach the `fs_context_parse_param` hook) is reported as a
+`write` with `target_fs` `{"type": "cgroup", "path": "release_agent"}`
 and `written_digest` the SHA-256 of the option's value. A successful `execve` yields
 one `exec` event, whatever interpreters it passes through.
 Sensors MUST observe through LSM or kernel-function hooks on the object (such as
@@ -94,13 +98,22 @@ resolved lexically. Endpoint decoys MUST also be observed where connections arri
 real server's logs when `listener` is false), because guests of VM and user-space
 network sandboxes reach host endpoints without any host `connect`, and TCP fast-open
 and raw packets bypass connect hooks. Such arrival sources report action `connect`,
-the connecting sandbox in `actor.sandbox_id` when they can tell it, and, for a peer
-socket on the same host, `actor` filled from the process owning that socket, so probes
-and suppressions match them. Hooks always allow the operation (`stealth/spec.md`).
+the connecting sandbox in `actor.sandbox_id` when they can tell it (for guest traffic
+forwarded by the kernel, by its ingress interface), and, for a peer socket on the same
+host, `actor` filled from the process owning that socket, so probes and suppressions
+match them. A connection whose source address is in the probe prefix
+(`telemetry/spec.md`) is reported with the probe's identity as `actor`. Hooks always allow the operation (`stealth/spec.md`).
 Sensors MUST drop in the kernel events that can never hit (actions other than `open-write`,
 `write`, and `truncate` on kernel interfaces, `stat` on decoys in `ignore_stat`) and give each watched object
 its own reserved buffer capacity, so flooding other files, or harmless actions on
-watched ones, cannot turn a decoy hit into a sequence gap.
+watched ones, cannot turn a decoy hit into a sequence gap. Helper requests (seen at
+`call_usermodehelper_exec`), execs by processes with a non-null `helper_depth`, and
+process-creation records likewise use capacity no other event class shares, never in
+a buffer that overwrites committed records (such as one created with
+`BPF_F_RB_OVERWRITE`). Sensors recognize a helper by how it was created (a process
+that is not a kernel thread, created by a kernel thread, other than init), since the
+`PF_UMH` flag never marked these helpers, and keep lineage in kernel-resident state
+that survives a sensor restart (such as pinned maps and links).
 
 Sensors MUST report a path as an absolute path at which the same object is reachable
 from the root of the initial mount namespace, whichever namespace or `chroot` the
@@ -157,9 +170,7 @@ endpoint target is canonicalized with `0.0.0.0` rewritten to `127.0.0.1` and `[:
   `heartbeat` (and `stat` for decoys in `ignore_stat`), and either `target_inode`
   equals a `decoy_inodes` entry of that decoy (catching hard links and bind mounts) or
   the canonical target equals its `canonical_location` or one of its
-  `companion_paths`, or for `mount` is the parent directory of one of them (a `notify-mark` hits only on the
-  object itself, since systemd and others mark directories such as `/run` routinely);
-  or
+  `companion_paths`, or for `mount` or `notify-mark` is the parent directory of one of them; or
 - an endpoint decoy, when `action` is `connect` and the canonical target equals its
   `canonical_location`.
 
@@ -170,23 +181,25 @@ applied to whatever fields of a rejected event parse, lists it in `rejected_hits
 (`index` and `decoy_id`), because a malformed or forged event on a decoy needs
 investigation. When a placed planted path decoy or one of its companions has no
 `decoy_inodes` entry, the result warns `missing-inode-binding`; when an accepted event's
-canonical target is a bound path but its non-null `target_inode` differs from that
-path's binding, it warns `inode-binding-mismatch`, since a replaced decoy or a wrongly encoded
+canonical target is a bound path but its non-null `target_inode` differs from every
+binding of that path, it warns `inode-binding-mismatch`, since a replaced decoy or a wrongly encoded
 device would otherwise leave hard links and private mounts unmatched. A rejected event
 whose `action` is invalid is matched under every rule its valid fields allow.
 
 A hit is a **probe hit** when `probe` is not null, the decoy is planted, the action is
 `stat`, `open`, `read`, or `connect`, and the actor's canonical `executable`,
 `executable_digest`, and `uid` equal the probe's, and the decoy has no
-`decoy_inodes` entry for the target's path or `target_inode` matches it. Otherwise it is **suppressed** when a
-suppression names its `decoy_id`, the actor's non-null canonical `executable` and `uid`, and a
+`decoy_inodes` entry for the target's path or `target_inode` matches one of them. Otherwise it is **suppressed** when a
+suppression names its `decoy_id`, the actor's `uid`, and, unless its `executable` is null, the actor's non-null canonical `executable`, and a
 digest in `executable_digests` equal to the actor's non-null `executable_digest`, and, for a `write` to a kernel interface, the event's
 `written_digest` equals the suppression's `value_digest`, so a maintenance tool
 writing an unexpected value still alerts. `credential-use` and `helper-exec` hits are
 never probe hits or suppressed, nor is a hit whose actor is a sandbox's runtime or
 harness process, descends from one, or has a non-null `helper_depth`, nor one whose
-`actor.process`, `ancestry`, or `helper_depth` was repaired. Every other hit is an
-alert.
+`actor.process`, `ancestry`, or `helper_depth` was repaired, nor one whose
+`actor.environment_names` contains a name beginning with `LD_`, or `GCONV_PATH` or
+`GLIBC_TUNABLES`, which make the dynamic loader run other code inside a trusted
+executable. Every other hit is an alert.
 
 ## Result
 

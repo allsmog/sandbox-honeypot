@@ -21,8 +21,9 @@ watched decoys have no material and a null `canary_digest`.
 | `ssh-ed25519` | derived | `private_key_seed`: lowercase hex of `derive("ed25519")`, the RFC 8032 private key; `public_key`: `ssh-ed25519 `, the standard base64 of the SSH public key blob (length-prefixed `ssh-ed25519`, then the length-prefixed 32-byte public key), a space, `OWNER@{host_name}`; `fingerprint` | `fingerprint`: `SHA256:` and the unpadded standard base64 of SHA-256 over that blob | OpenSSH servers at `LogLevel VERBOSE` on hosts an intruder would try, or an SSH honeypot. |
 | `kubeconfig-token` | derived | `token`: map each of the first 22 bytes of `derive("token")` to `0123456789abcdefghijklmnopqrstuvwxyz` by value modulo 36; the first 6 characters, `.`, and the remaining 16. Also `cluster` (`context.cluster_name`), `server` (`https://` and `context.api_server`), `certificate_authority_data` (`context.cluster_ca_data`, without which clients refuse the server before sending the token), and `user` (`OWNER`). | `token` | a token authentication webhook or authenticating proxy that reports presented tokens; API server audit logs never contain tokens. |
 
-`OWNER` is the account a real file at that location would belong to: `root` beneath
-`/root`, `NAME` beneath `/home/NAME`, and otherwise `dormant_user`, or `root` when
+`OWNER` is the account a real file at that location would belong to, judged on the
+canonical location: `root` beneath `/root`, `NAME` beneath `/home/NAME` (both in
+canonical form), and otherwise `dormant_user`, or `root` when
 that is null.
 
 Residual risks: some AWS APIs that reveal a key's identity are not logged, so a
@@ -57,7 +58,8 @@ neither) with that decoy's technique, so credentials of a removed decoy stay wat
 To rotate a provided key, keep the old deny-all key in IAM, so its use is still
 logged, and list its digest here. Each retired entry has exactly `decoy_id`, `kind`
 (`credential-file`), `technique` (the decoy's), `epoch` (null when not derived), and
-`canary_digest`. Every current and retired digest MUST be unique; otherwise the
+`canary_digest`. Each retired epoch adds about 110 bytes to `watch`, so derived decoys are rotated on
+suspected exposure rather than on a schedule. Every current and retired digest MUST be unique; otherwise the
 request is invalid.
 
 ## Context
@@ -87,11 +89,13 @@ inspected safely in its place.
 
 A **cover file** is operator-written dressing that makes a decoy the obvious next step,
 such as a README or runbook that mentions it: `cover_files` holds objects
-with exactly `decoy_id` (an included planted decoy), `path`, and `content`. Cover files
+with exactly `decoy_id` (an included planted decoy that is not `reachable`, since a
+boundary decoy needs no cover story), `path`, and `content`. Cover files
 are not watched, since people may read them. A cover file the sandbox can read would
 point a sandboxed attacker at the host, so it makes its decoy exposed. Cover files with
 the same path and content are one file shared by their decoys: they do not collide,
-and `companions` lists it once, under the first.
+and `companions` lists it once, under the first placed decoy sharing it (or not at
+all when none is placed).
 
 `companions` in the `plan` result lists the files to create for placed decoys: objects
 with exactly `decoy_id`, `path`, `content`, and `watched`, in decoy order, each decoy's

@@ -169,16 +169,16 @@ first failure. First, each field is checked on its own, in the order this
 specification lists it, depth first, arrays in index order. Then cross-field rules are
 checked in this order, each reported at the field named:
 
-1. The seed, or the sensor keys when authentication is required, are absent,
-   duplicated, too short, or do not cover every declared source (`/seed` or
-   `/sensor_keys`).
+1. The seed is absent, given both in the request and the environment, or too short
+   (`/seed`); or, when authentication is required, the sensor keys are absent, given
+   in both, or do not name exactly the declared sources (`/sensor_keys`).
 2. `window.end` is not after `window.start` (`/window/end`), or `carry` is not null
    and its `window_end` differs from `window.start` (`/window/start`).
 3. A value that must be unique repeats: a decoy named twice in `include`, `exclude`,
    `relocate`, `epochs`, `provided_credentials`, `corroboration.decoys`, or
    `ignore_stat`, a custom `decoy_id`, a source, sandbox ID, runtime process identity or one also listed as a harness,
    harness ID, or
-   `decoy_inodes` path or device-inode pair (the later occurrence). Other lists, such
+   `decoy_inodes` device-inode pair or third entry for one path (the later occurrence). Other lists, such
    as `suppressions`, `decoy_inodes`, and `retired_canaries`, may name a decoy more
    than once.
 4. A reference names an unknown decoy or one of the wrong kind or state, a
@@ -198,8 +198,11 @@ checked in this order, each reported at the field named:
 9. Any other constraint between fields fails, such as a location of the wrong type for
    its decoy or kind, a `credential_format` that does not fit `kind`, a
    `decoy_inodes` path outside its decoy's footprint, repeated corroboration sources,
-   empty harness signature arrays, or a malformed sensor key (the later field in
-   field order).
+   empty harness signature arrays, or a null suppression `executable` with a nonzero
+   `uid` (the later field in field order).
+10. `watch` is inconsistent: a repeated decoy ID, an invalid alias set, a
+    `canonical_location` that is not the canonical form of its `location`, or a
+    repeated digest (the later field within `watch`).
 
 Identifier strings (`deployment_id`, `sandbox_id`, `event_id`, `source`,
 `sensor_instance`, `harness_id`) MUST be nonempty. Strings are compared and sorted by
