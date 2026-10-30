@@ -135,8 +135,9 @@ the port without leading zeros. Host names are not endpoints. An exposure endpoi
 non-loopback address of both families; `PORTS` is a port or `*`. A decoy endpoint is exposed when its
 canonical address lies in the scope and its port is in the ports. IPv4 addresses lie
 only in IPv4 scopes. A sandbox's loopback is normally its own, so `*` and CIDR scopes
-never cover loopback addresses; only an exposure endpoint naming a loopback address
-explicitly does, which sandboxes sharing the host network, libkrun's TSI, and slirp,
+never cover loopback addresses unless the block lies within loopback (`127.0.0.0/8`,
+`[::1]/128`); only such an exposure endpoint, or one naming a loopback address,
+covers them, which sandboxes sharing the host network, libkrun's TSI, and slirp,
 passt, or pasta with host-loopback forwarding need. Egress rules naming
 hosts MUST be resolved to addresses by the operator.
 

@@ -76,7 +76,7 @@ These caps bound `carry` by the number of declared sources and corroborated deco
 which operators keep small enough for requests to fit.
 
 Carried entries for sources, decoys, or a probe the request no longer declares are
-dropped. The caps keep the latest by `time`, ties by event ID. The result's `carry`
+dropped, except `pending` hits, which become uncorroborated. The caps keep the latest by `time`, ties by event ID. The result's `carry`
 holds the updated values, sorted by source and instance, by
 source, in decoy order, and by time then event ID respectively.
 
@@ -111,7 +111,8 @@ SHOULD emit `heartbeat` events, so a quiet sensor is distinguishable from a dead
 
 ## Self-test probes
 
-`probe` is null or an object with exactly `executable` (path), `executable_digest`
+`probe` is null or an object with exactly `executable` (path of a directly executed
+program, never a shell or general-purpose interpreter), `executable_digest`
 (64 lowercase hex), `uid` (integer), and `max_interval_seconds` (positive integer).
 When it is not null, every planted decoy is probed: take its carried `last_probe` time
 (or `window.start`, carried likewise for every planted decoy), the `received` times of

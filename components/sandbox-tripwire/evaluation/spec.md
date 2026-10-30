@@ -30,7 +30,7 @@ equal only when both fields are, so a reused PID never matches.
 | `harness_signatures` | array | See `attribution/spec.md`. |
 | `sources`, `probe`, `corroboration`, `authentication`, `sensor_keys`, `max_clock_skew_seconds`, `carry` | | See `telemetry/spec.md`; `sensor_keys` is optional. |
 | `window` | object | Exactly `start` and `end` timestamps, `end` after `start`. It contains the events **received** from `start` (inclusive) to `end` (exclusive). |
-| `decoy_inodes` | array | Objects with exactly `decoy_id` (a placed planted path decoy), `path` (its canonical location or one of its `companion_paths`), `device` and `inode` (decimal strings without leading zeros of the `st_dev` and `st_ino` values `stat(2)` returns, which can exceed 2^53) of the decoys as currently materialized; sensors report the same encoding, including the anonymous devices of btrfs subvolumes and overlay filesystems. Inode numbers are reused once freed, so operators MUST record new entries whenever decoys are re-materialized (each boot for decoys on `tmpfs`, each rotation) and start a new batch there. Paths and device-inode pairs are unique. |
+| `decoy_inodes` | array | Objects with exactly `decoy_id` (a placed planted path decoy), `path` (its canonical location or one of its `companion_paths`), `device` and `inode` (decimal strings without leading zeros of the `st_dev` and `st_ino` values `stat(2)` returns, which can exceed 2^53) of the decoys as currently materialized; sensors report the same encoding, including the anonymous devices of btrfs subvolumes and overlay filesystems. Inode numbers are reused once freed, so operators MUST record new entries at every boot (device numbers of `tmpfs`, btrfs, overlay, and device-mapper filesystems change across boots) and every rotation and start a new batch there. Paths and device-inode pairs are unique. |
 | `events` | array | Host sensor observations. |
 
 Everything except the elements of `events` is validated strictly and fails the
@@ -151,7 +151,8 @@ endpoint target is canonicalized with `0.0.0.0` rewritten to `127.0.0.1` and `[:
   `heartbeat` (and `stat` for decoys in `ignore_stat`), and either `target_inode`
   equals a `decoy_inodes` entry of that decoy (catching hard links and bind mounts) or
   the canonical target equals its `canonical_location` or one of its
-  `companion_paths`, or for `mount` or `notify-mark` is the parent directory of one of them;
+  `companion_paths`, or for `mount` is the parent directory of one of them (a `notify-mark` hits only on the
+  object itself, since systemd and others mark directories such as `/run` routinely);
   or
 - an endpoint decoy, when `action` is `connect` and the canonical target equals its
   `canonical_location`.

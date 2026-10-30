@@ -66,8 +66,8 @@ request is invalid.
 recognizable. It has exactly `host_name` (a lowercase DNS label), `dormant_user`,
 `aws_region` (nonempty), `cluster_name`, `api_server`, and `cluster_ca_data` (the
 standard base64 of the cluster's public CA certificate). These three are nonempty
-strings without whitespace, required when any `kubeconfig-token` decoy is included
-and otherwise null.
+strings without whitespace, required when a `kubeconfig-token` decoy is included and
+not excluded, and otherwise null.
 
 `dormant_user` is a POSIX user name (a lowercase letter or `_`, then up to 31 lowercase
 letters, digits, `_`, or `-`) or null. It MUST name an account that exists only for

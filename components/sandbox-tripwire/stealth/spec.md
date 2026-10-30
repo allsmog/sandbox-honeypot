@@ -33,9 +33,10 @@ no host side effects, and `plan` enforces the parts it can check.
   unwatched. On a host without a metadata service, the metadata decoy is reached
   through routing or address translation, never an interface address any user could
   list, and its backend runs in a network namespace no host process can reach directly.
-- The dormant account looks used: a login shell, ordinary home contents, login
-  records, and occasional ordinary reads of its files, because an account that never
-  logged in yet holds credentials, or files whose access times never move, is a tell.
+- The dormant account looks used: a login shell and ordinary home contents with
+  plausible timestamps. Its decoys' access times stay at materialization, since any
+  read or timestamp change is a hit; an attacker comparing access times can notice
+  this, an accepted residual risk.
 - Decoys fit the platform: a metadata decoy only where DMI and cloud identity say the
   host is a cloud instance of that provider.
 - A used decoy credential gets exactly the response a real credential without
