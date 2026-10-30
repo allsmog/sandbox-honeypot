@@ -26,27 +26,33 @@ development workflow below.
 
 The application exposes one `run` entrypoint that takes a single JSON object.
 
-1. **Plan decoys.** Describe the deployment, its sandbox runtime, everything the
-   sandbox can legitimately reach (`exposure`), and real host assets (`occupied`):
+1. **Plan decoys.** Put the secret seed in `SANDBOX_HONEYPOT_SEED` (never on the
+   command line), then describe the deployment, everything the sandbox can
+   legitimately reach (`exposure`), real host assets (`occupied`), any symlinked
+   directories (`path_aliases`), and optional decoys of your own:
 
    ```json
    {"operation": "plan", "deployment_id": "prod-agents", "runtime": "gvisor",
-    "host_profile": "linux-host", "seed": "<secret>",
-    "exposure": {"paths": ["/root/.ssh"], "endpoints": ["169.254.169.254:*"]},
-    "occupied": ["/var/run/docker.sock"]}
+    "host_profile": "linux-host", "host_environment": "cloud-vm",
+    "exposure": {"paths": ["/root/.ssh"], "endpoints": []},
+    "occupied": ["/run/docker.sock"], "path_aliases": [],
+    "custom_decoys": [], "exclude": []}
    ```
 
-   The result lists the decoys to place (each with a canary token to embed) and the
-   catalog decoys skipped as `exposed` or `occupied`.
+   The result has three parts: `material` holds the secret decoy credentials, in
+   realistic AWS, OpenSSH and Kubernetes token formats. `watch` describes what to
+   monitor and contains no secrets. `skipped` explains each decoy left out.
 
-2. **Place the decoys and watch them.** Materialize each decoy at its location with
-   its canary, and point host-side sensors (fanotify, auditd, eBPF, flow logs, cloud
-   audit logs) at those locations and canaries. Version 0.1.0 does not do this for you.
+2. **Place the decoys and watch them.** Write each credential decoy from `material`,
+   create the socket and endpoint decoys, then delete `material`. Point host-side
+   sensors (fanotify, auditd, eBPF, flow logs, cloud audit logs) at the `watch`
+   locations, and send periodic heartbeats. Version 0.1.0 does not do this for you.
 
-3. **Evaluate events.** Send the plan, the deployment's sandbox IDs, sensor events,
-   and any maintenance suppressions as `{"operation": "evaluate", ...}`. The result
-   reports `breached`, ordered alerts with ATT&CK techniques, and per-sandbox
-   incidents.
+3. **Evaluate events.** Send `watch`, the sandboxes' host PIDs, an observation window,
+   the expected sensors, maintenance suppressions (by executable and uid), and sensor
+   events as `{"operation": "evaluate", ...}`. The result reports `breached` with
+   critical, attributed alerts and per-sandbox incidents, and `degraded` when events
+   were malformed or a sensor went silent.
 
 ---
 

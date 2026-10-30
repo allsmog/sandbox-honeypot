@@ -11,6 +11,10 @@ provides:
   - name: sandbox-honeypot.escape-tripwire
     version: 0.1.0
 requires: []
+specification_roots:
+  - "component.md"
+  - "decoys/spec.md"
+  - "evaluation/spec.md"
 authoring_inputs:
   - kind: specification-to-source-skill
     uri: skills/specification-to-source/portable-application-implementation/SKILL.md
@@ -51,8 +55,9 @@ such as gVisor, Capsem, Firecracker, or Kata. It does not replace the sandbox an
 not watch what happens inside it. Instead it plans **host decoys**: plausible host
 assets (credential files, control sockets, a metadata endpoint) that no legitimate
 sandboxed workload can reach. Because the sandbox boundary makes them unreachable, any
-contact with a decoy means the boundary failed. The tripwire then evaluates host-side
-sensor events against the planned decoys and reports breakouts.
+contact with a decoy means a host compromise, and usually a sandbox escape. The
+tripwire then evaluates host-side sensor events against the planned decoys and reports
+breakouts.
 
 ```mermaid
 flowchart LR
@@ -60,24 +65,30 @@ flowchart LR
         W["Workload"]
     end
     W -. "escape" .-> D["Host decoys"]
-    X["Sandbox exposure<br/>(mounts, egress)"] --> P["plan"]
-    O["Occupied host assets"] --> P
-    P --> D
+    X["Exposure, occupied assets,<br/>path aliases, custom decoys"] --> P["plan"]
+    P -- "material (secret)" --> D
+    P -- "watch (not secret)" --> E["evaluate"]
     D --> S["Host sensors<br/>(fanotify, auditd, eBPF, flow, cloud audit)"]
-    S --> E["evaluate"]
-    E --> A["Alerts + incidents"]
+    S --> E
+    E --> A["Alerts, incidents,<br/>sensor health"]
 ```
 
-The tripwire's value depends on two properties, both enforced by `plan`:
+The tripwire's value depends on these properties:
 
-1. A decoy is never placed on a path or endpoint the sandbox legitimately exposes, so
-   ordinary workloads cannot trip it.
-2. A decoy never displaces a real host asset.
+1. A decoy is never placed where a sandbox can legitimately reach it, including
+   through a path alias, so ordinary workloads cannot trip it.
+2. A decoy never displaces a real host asset or real service.
+3. Decoy credentials are indistinguishable in format from real ones, and operators
+   can add decoys of their own so the placement is not fully predictable from this
+   specification.
+4. Every decoy contact that is not an explicitly suppressed maintenance access is
+   critical, and a sensor cannot be silenced or blinded without the tripwire saying so.
 
 Version 0.1.0 is a pure, deterministic decision engine. It MUST NOT read or write the
-host filesystem, open network listeners, read the clock, or contact any network.
-Materializing decoy files and running sensors are the operator's responsibility (or a
-later Component's); they consume the `plan` result and feed observed events into
+filesystem, open network listeners, read the clock, or contact any network. Its only
+ambient input is the optional seed environment variable defined below. Materializing
+decoys and running sensors are the operator's responsibility (or a later
+Component's); they consume the `plan` result and feed observed events into
 `evaluate`.
 
 ## Application contract
@@ -88,200 +99,111 @@ boundary in every language; in Python it is `main(request)`. The process entrypo
 receives the complete JSON argument array in one command-line token, so its value is
 `[request]`. The result is one JSON object written to standard output.
 
+The decoy catalog, path aliases, credential material, and `plan` are specified in
+`decoys/spec.md`; `evaluate` is specified in `evaluation/spec.md`.
+
 Every object in a request is strict: unknown fields, missing required fields, and
-values of the wrong type are invalid. Strings named as identifiers (`deployment_id`,
-`sandbox_ids` entries, `event_id`) MUST be nonempty.
+values of the wrong type are invalid. Identifier strings (`deployment_id`,
+`sandbox_id`, `event_id`, `source`) MUST be nonempty. An RFC 3339 timestamp is a UTC
+time with the `Z` suffix and optional fractional seconds; timestamps are compared by
+the instant they denote.
 
-### Decoy catalog
+### Secrets
 
-Each decoy has a stable `decoy_id`, a `kind`, a host `location`, and a primary MITRE
-ATT&CK `technique`. The catalog is fixed; its order is the order of the `decoys` and
-`skipped` result lists.
+Command-line arguments are visible to every user on a host, so the request carries no
+secret except as a test convenience:
 
-| `decoy_id` | `kind` | `location` | `technique` | Host profiles |
-| --- | --- | --- | --- | --- |
-| `cloud-credentials` | `credential-file` | `/root/.aws/credentials` | `T1552.001` | all |
-| `ssh-private-key` | `credential-file` | `/root/.ssh/id_ed25519` | `T1552.004` | all |
-| `container-socket` | `socket` | `/var/run/docker.sock` | `T1552.007` | all |
-| `metadata-endpoint` | `endpoint` | `169.254.169.254:80` | `T1552.005` | all |
-| `runtime-control` | `socket` | per runtime, below | `T1611` | all |
-| `kubeconfig` | `credential-file` | `/etc/kubernetes/admin.conf` | `T1552.001` | `kubernetes-node` |
-| `kubelet-client-cert` | `credential-file` | `/var/lib/kubelet/pki/kubelet-client-current.pem` | `T1552.004` | `kubernetes-node` |
-
-`runtime-control` location by `runtime`:
-
-| `runtime` | `location` |
-| --- | --- |
-| `gvisor` | `/run/runsc/control.sock` |
-| `capsem` | `/run/capsem/control.sock` |
-| `firecracker` | `/run/firecracker/api.sock` |
-| `kata` | `/run/kata-containers/shim.sock` |
-| `generic` | `/run/sandbox/control.sock` |
-
-### Canary tokens
-
-Every placed decoy carries a canary token that the operator embeds in the decoy (as
-the secret in a credential file, or as a banner served by a socket or endpoint). The
-canary is the ASCII string `hp` followed by the first 32 lowercase hexadecimal
-characters of HMAC-SHA256, keyed with the UTF-8 bytes of `seed`, over the UTF-8 bytes of
-`deployment_id`, one line feed (U+000A), and `decoy_id`.
-
-### Locations
-
-A path location is an absolute POSIX path: it starts with `/`, contains no empty,
-`.`, or `..` segment, and has no trailing `/` unless it is exactly `/`. An endpoint
-location is `HOST:PORT`, where `PORT` is a base-10 integer from 1 to 65535. In exposure
-lists only, an endpoint MAY use `HOST:*` to mean every port on that host. Any other
-spelling is invalid.
-
-### Operation `plan`
-
-Request fields:
-
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `operation` | string | `plan`. |
-| `deployment_id` | string | The protected deployment. |
-| `runtime` | string | `gvisor`, `capsem`, `firecracker`, `kata`, or `generic`. |
-| `host_profile` | string | `linux-host` or `kubernetes-node`. |
-| `seed` | string | Nonempty secret for canary derivation. |
-| `exposure` | object | What any sandbox in the deployment can legitimately reach. |
-| `occupied` | array of strings | Locations already used by real host assets. |
-
-`exposure` has exactly `paths` (array of path locations bind-mounted, shared, or
-otherwise visible inside any sandbox) and `endpoints` (array of endpoint locations
-allowed by sandbox egress policy).
-
-A catalog decoy for the selected `host_profile` is skipped with reason `exposed` when
-its path location equals an exposure path or lies beneath one on a segment boundary,
-or when its endpoint location equals an exposure endpoint or matches an exposure
-`HOST:*`. Otherwise it is skipped with reason `occupied` when its location exactly
-equals an `occupied` entry. `exposed` takes precedence. Every other decoy is placed.
-
-The result has exactly these fields:
-
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `operation` | string | `plan`. |
-| `deployment_id` | string | Echoed. |
-| `runtime` | string | Echoed. |
-| `host_profile` | string | Echoed. |
-| `decoys` | array | Placed decoys: objects with exactly `decoy_id`, `kind`, `location`, `technique`, and `canary`. |
-| `skipped` | array | Skipped decoys: objects with exactly `decoy_id`, `location`, and `reason`. |
-
-A plan with no placed decoys is still a valid result; operators SHOULD treat an empty
-`decoys` list as a deployment that the tripwire cannot protect.
-
-### Operation `evaluate`
-
-Request fields:
-
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `operation` | string | `evaluate`. |
-| `plan` | object | A complete `plan` result, as returned above. |
-| `sandbox_ids` | array of strings | Sandboxes known to belong to the deployment. |
-| `events` | array | Host sensor observations. |
-| `suppressions` | array | Known maintenance access: objects with exactly `decoy_id` and `process`. |
-
-Each event has exactly `event_id`, `time`, `source`, `action`, `target`, and `actor`.
-`time` is an RFC 3339 timestamp in UTC with the `Z` suffix and optional fractional
-seconds. `source` is a nonempty free-form sensor name such as `fanotify`, `auditd`,
-`ebpf`, `netflow`, or `cloudtrail`. `action` is one of `open`, `read`, `write`,
-`exec`, `delete`, `connect`, or `credential-use`. `target` is a string. `actor` has
-exactly `process` (string or null), `pid` (integer or null), and `sandbox_id` (string
-or null). Event IDs are unique within a request.
-
-An event **hits** a placed decoy as follows:
-
-- For `credential-use`, when `target` contains that decoy's `canary` as a substring.
-  One event can hit several decoys.
-- For every other action, when `target` exactly equals that decoy's `location`.
-
-An event that hits no decoy is **ignored**. A hit that is not `credential-use` is
-**suppressed** when a suppression names its `decoy_id` and the event's
-`actor.process`. A `credential-use` hit is never suppressed: a used canary proves
-exfiltration regardless of who touched the file. Every remaining hit is an alert.
-
-| Condition | `severity` | `verdict` | `techniques` |
-| --- | --- | --- | --- |
-| `credential-use` | `critical` | `credential-exfiltrated` | decoy technique, then `T1078` |
-| `actor.sandbox_id` is in `sandbox_ids` | `critical` | `escape-confirmed` | `T1611`, then decoy technique |
-| any other hit | `high` | `breach-suspected` | `T1611`, then decoy technique |
-
-When the decoy technique is itself `T1611`, `techniques` lists it once.
-
-The result has exactly these fields:
-
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `operation` | string | `evaluate`. |
-| `deployment_id` | string | From `plan`. |
-| `breached` | boolean | True when `alerts` is nonempty. |
-| `alerts` | array | Alerts as defined below. |
-| `incidents` | array | Alerts grouped by sandbox, as defined below. |
-| `suppressed` | integer | Count of suppressed hits. |
-| `ignored` | integer | Count of ignored events. |
-
-Each alert has exactly `alert_id` (`event_id`, `/`, `decoy_id`), `event_id`,
-`decoy_id`, `kind`, `location`, `severity`, `verdict`, `techniques`, `sandbox_id` (the
-event's `actor.sandbox_id`), `time`, and `source`. Alerts are ordered by the instant
-`time` denotes, then `event_id`, then `decoy_id`.
-
-Alerts are grouped into one incident per distinct `sandbox_id`, with every alert whose
-`sandbox_id` is null forming one unattributed incident. Each incident has exactly
-`sandbox_id`, `severity` (`critical` when any member is critical, otherwise `high`),
-`first_seen`, `last_seen` (the member `time` values denoting the earliest and latest
-instants), and `alert_ids` in alert order. Incidents are ordered by `first_seen`
-instant, then by `sandbox_id`, with the unattributed incident last among equals.
+- The **seed** keys every decoy credential. `plan` reads it from the environment
+  variable `SANDBOX_HONEYPOT_SEED` when the request has no `seed` field. Exactly one of
+  the two MUST be present and nonempty; both or neither is invalid (field `/seed`). A
+  request `seed` is accepted for tests and adds the warning `seed-in-request` to the
+  result.
+- The `plan` result separates `material` (decoy credential secrets, to be handled
+  like the seed and used only to materialize decoys) from `watch` (no secrets).
+  `evaluate` takes only `watch`, which identifies decoy credentials by SHA-256 digest.
 
 ### Failures
 
 An invalid request writes exactly `{"error": {"code": "invalid-request", "field":
 POINTER}}` to standard output, where `POINTER` is an RFC 6901 JSON Pointer to the first
-offending value (`""` for the whole request), and exits with status 2. A valid request
-exits with status 0.
+offending value (`""` for the whole request), and exits with status 2. A valid request,
+including an `evaluate` request with rejected events, exits with status 0.
 
 ### Requirement: Host decoys stay outside the sandbox boundary
 
-The tripwire SHALL never plan a decoy that a sandbox can legitimately reach, and SHALL
-never plan a decoy over a real host asset.
+The tripwire SHALL never plan a decoy that a sandbox can legitimately reach, directly
+or through a path alias, and SHALL never plan a decoy over a real host asset or
+service.
 
-#### Scenario: gVisor host with a shared root home
+#### Scenario: gVisor on a cloud VM
 
-- **WHEN** `plan` runs for deployment `prod-agents`, runtime `gvisor`, host profile `linux-host`, seed `test-seed`, exposure paths `["/root/.ssh"]`, exposure endpoints `["169.254.169.254:*"]`, and occupied `["/var/run/docker.sock"]`
-- **THEN** it places `cloud-credentials` at `/root/.aws/credentials` with canary `hp6c8bcf18cb919b71ed439632bbb5a258` and `runtime-control` at `/run/runsc/control.sock` with canary `hp5644b87f8871f6e807041d661782c365`
-- **AND** it skips `ssh-private-key` and `metadata-endpoint` as `exposed` and `container-socket` as `occupied`, in catalog order
+- **WHEN** `plan` runs with request seed `test-seed` for deployment `prod-agents`, runtime `gvisor`, host profile `linux-host`, environment `cloud-vm`, exposure paths `["/root/.ssh"]`, no exposure endpoints, occupied `["/run/docker.sock"]`, and no aliases, custom decoys, or exclusions
+- **THEN** `warnings` is `["seed-in-request"]` and `watch.decoys` holds `cloud-credentials` (canary digest `af6f7c5cd8e184365df3568295a722fcba5df8381da9b1da78a11ff5d6c7f144`) and `runtime-control` at `/run/runsc/control.sock`
+- **AND** `material` holds only `cloud-credentials`, whose access key ID is `AKIA` plus 16 base32 characters with SHA-256 equal to that canary digest, and whose 40-character secret access key has SHA-256 `f7890ca8bf35c5ff10b6a05987ebc1fa0ab7851afb4dc7652f8d758b7fc48358`
+- **AND** this specification states decoy credentials only by digest, because their realistic format makes secret scanners treat literal values as leaked keys
+- **AND** `skipped` lists `ssh-private-key` as `exposed`, `container-socket` (location `/var/run/docker.sock`) as `occupied` through the built-in alias, and `metadata-endpoint` as `real-service`, in catalog order
 
-#### Scenario: Kubernetes node adds cluster credentials
+#### Scenario: Sandbox that mounts the aliased run directory
 
-- **WHEN** `plan` runs for runtime `capsem`, host profile `kubernetes-node`, with empty exposure and occupied lists
-- **THEN** it places all seven catalog decoys in catalog order, with `runtime-control` at `/run/capsem/control.sock`
+- **WHEN** `plan` runs for runtime `capsem` with exposure paths `["/var/run"]`
+- **THEN** `container-socket` and `runtime-control` (location `/run/capsem/control.sock`) are both skipped as `exposed`, because both canonical locations lie beneath `/run`
 
-### Requirement: Decoy contact is reported as a breakout
+#### Scenario: Kubernetes node with a custom decoy
 
-The tripwire SHALL turn host sensor events that touch planned decoys into ordered,
-attributed alerts and incidents, and SHALL count, not alert on, unrelated and
-suppressed events.
+- **WHEN** `plan` runs with request seed `test-seed` for deployment `k8s-node-1`, runtime `kata`, host profile `kubernetes-node`, environment `bare-metal`, empty exposure and occupied lists, exclusion `["container-socket"]`, and custom decoy `ops-kubeconfig` of kind `credential-file` at `/home/ops/.kube/config` with technique `T1552.001` and format `kubeconfig-token`
+- **THEN** `watch.decoys` lists `cloud-credentials`, `ssh-private-key`, `metadata-endpoint`, `runtime-control` (at `/run/kata-containers/shim.sock`), `kubeconfig`, and `ops-kubeconfig`, in that order, and `container-socket` is skipped as `excluded`
+- **AND** the `ssh-private-key` fingerprint is `SHA256:IvnjpAo829DjMb8GQuqMcahF8yb5OpOJ8KD5UynBOjs`, the `kubeconfig` token is `lkctwr.x3y1n7oqjfomlqps`, and the `ops-kubeconfig` token is `hh7xi1.47vcz0lsv1534xw6`
 
-#### Scenario: Attributed escape and exfiltration
+### Requirement: Decoy contact is a critical breakout
 
-- **GIVEN** the gVisor plan above and `sandbox_ids` `["sbx-1"]`
-- **WHEN** `evaluate` receives event `e1` at `2026-10-30T12:00:00Z` where process `python3` in sandbox `sbx-1` performs `connect` on `/run/runsc/control.sock`, event `e2` at `2026-10-30T12:05:00Z` with `credential-use` on target `AccessKeyId=hp6c8bcf18cb919b71ed439632bbb5a258` and a null actor, and event `e3` at `2026-10-30T12:01:00Z` where process `restic` reads `/root/.aws/credentials` under a suppression for `cloud-credentials` and `restic`
-- **THEN** `breached` is true with alert `e1/runtime-control` (`critical`, `escape-confirmed`, techniques `["T1611"]`, sandbox `sbx-1`) followed by alert `e2/cloud-credentials` (`critical`, `credential-exfiltrated`, techniques `["T1552.001", "T1078"]`, sandbox null)
-- **AND** `suppressed` is 1, `ignored` is 0, and there are two incidents: `sbx-1` first, then the unattributed incident
+The tripwire SHALL turn every unsuppressed decoy contact into a critical, attributed
+alert, and SHALL NOT let a self-reported process name suppress or change one.
 
-#### Scenario: Quiet host
+#### Scenario: Escape, impostor maintenance tool, and exfiltration
 
-- **WHEN** `evaluate` receives only events whose targets match no decoy location or canary
-- **THEN** `breached` is false, `alerts` and `incidents` are empty, and `ignored` equals the number of events
+- **GIVEN** the `watch` from the gVisor cloud-VM plan, sandbox `sbx-1` with host PIDs `[4100]`, and a suppression for `cloud-credentials`, executable `/usr/bin/restic`, uid 0
+- **WHEN** `evaluate` receives event `e1` at `2026-10-30T12:00:00Z` where PID 4242 with ancestry `[4100, 1]` running `/usr/bin/python3` performs `connect` on `/run/runsc/control.sock`; `e2` at `12:01:00Z` where `/usr/bin/restic` as uid 0 reads `/root/.aws/credentials`; `e3` at `12:02:00Z` where a process named `restic` running `/tmp/.x/restic` as uid 0 with ancestry `[1]` reads `/root/.aws/credentials`; and `e4` at `12:05:00Z` from source `cloudtrail` with `credential-use` on a target equal to that plan's `cloud-credentials` access key ID and an all-null actor with empty ancestry
+- **THEN** the alerts are `e1/runtime-control` (`escape-confirmed`, attribution `ancestry`, sandbox `sbx-1`, techniques `["T1611"]`), `e3/cloud-credentials` (`host-breach`, sandbox null, process `restic`, techniques `["T1611", "T1552.001"]`), and `e4/cloud-credentials` (`credential-exfiltrated`, techniques `["T1552.001", "T1078"]`), all `critical`
+- **AND** `suppressed` lists only `e2`, and the incidents are `sbx-1` with `["e1/runtime-control"]`, then the unattributed incident with `["e3/cloud-credentials", "e4/cloud-credentials"]`
 
-### Requirement: Fail closed on malformed input
+#### Scenario: Alias path and simultaneous alerts
+
+- **GIVEN** the same `watch` and sandbox
+- **WHEN** event `a2` reads `/root/.aws/credentials` with an all-null actor and event `a1`, reported by a runtime-aware sensor with `actor.sandbox_id` `sbx-1` and empty ancestry, connects to `/var/run/runsc/control.sock`, both at `2026-10-30T12:00:00Z`
+- **THEN** `a1/runtime-control` (attribution `sensor`) precedes `a2/cloud-credentials`, and the `sbx-1` incident precedes the unattributed incident
+
+### Requirement: Malformed or missing telemetry is visible
+
+The tripwire SHALL keep evaluating valid events when others are malformed, and SHALL
+report sensors that fall silent.
+
+#### Scenario: One malformed event
+
+- **WHEN** `evaluate` receives a first event whose `time` is `2026-10-30 12:00` and a second, valid event that connects to `/run/runsc/control.sock`
+- **THEN** the second event still produces an alert, `rejected` is `[{"index": 0, "field": "/time"}]`, and `degraded` and `breached` are both true
+
+#### Scenario: Silent sensor
+
+- **WHEN** the window is `2026-10-30T12:00:00Z` to `2026-10-30T13:00:00Z`, sensor `fanotify` allows 600 seconds of silence, and the only events are `fanotify` heartbeats at `12:00:00Z`, `12:10:00Z`, and `12:30:00Z`
+- **THEN** `sensor_gaps` holds `fanotify` from `12:10:00Z` to `12:30:00Z` and from `12:30:00Z` to `13:00:00Z`, `degraded` is true, `breached` is false, and `ignored` is 0
+
+### Requirement: Fail closed on malformed requests
 
 The tripwire SHALL reject malformed requests instead of guessing, because a silently
-accepted bad exposure list would place decoys inside the sandbox boundary.
+accepted bad exposure list or alias set could place decoys inside the sandbox
+boundary.
 
 #### Scenario: Relative exposure path
 
 - **WHEN** `plan` receives exposure paths `["root/.ssh"]`
 - **THEN** it writes the `invalid-request` error with field `/exposure/paths/0` and exits with status 2
+
+#### Scenario: Chained aliases
+
+- **WHEN** `plan` receives path aliases `/srv/run` → `/var/run/app`
+- **THEN** it rejects the request at `/path_aliases/0/target`, because that target lies beneath the built-in alias `/var/run`
+
+#### Scenario: Seed supplied twice
+
+- **WHEN** `plan` receives a request `seed` while `SANDBOX_HONEYPOT_SEED` is also set
+- **THEN** it rejects the request at `/seed`
