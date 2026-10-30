@@ -154,7 +154,7 @@ Every other decoy is placed. The result has exactly these fields:
 | --- | --- | --- |
 | `operation` | string | `plan`. |
 | `warnings` | array of strings | `seed-in-request` when applicable; otherwise empty. |
-| `watch` | object | The non-secret input to `evaluate`. |
+| `watch` | object | The input to `evaluate`: free of credential secrets, but confidential. |
 | `material` | array | One object per placed derived-credential decoy, in decoy order: `decoy_id`, `credential_format`, `epoch`, and that format's material fields. |
 | `skipped` | array | Objects with exactly `decoy_id`, `location`, and `reason`, in decoy order. |
 

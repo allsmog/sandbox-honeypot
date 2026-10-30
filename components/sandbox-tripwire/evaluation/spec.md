@@ -37,8 +37,8 @@ record cannot hide a real hit.
 
 An event has exactly `event_id`, `time` (timestamp), `source`, `action`, `target`
 (string), `target_inode` (object with exactly `device` and `inode`, or null), and
-`actor`. `action` is one of `open`, `read`, `write`, `exec`, `delete`, `connect`, or
-`credential-use`. `actor` has exactly `process` (process identity or null),
+`actor`. `action` is one of `stat`, `open`, `read`, `write`, `exec`, `delete`, `connect`,
+or `credential-use`. `actor` has exactly `process` (process identity or null),
 `ancestry` (array of process identities, parent first, possibly empty), `executable`
 (path or null), `uid` (integer or null), `comm` (string or null), and `sandbox_id`
 (string or null).
@@ -60,7 +60,7 @@ An accepted event **hits** a placed decoy when:
 
 - `action` is `credential-use` and the SHA-256 digest of `target` equals the decoy's
   `canary_digest`; or
-- `action` is `open`, `read`, `write`, `exec`, `delete`, or `connect`, and the decoy is
+- `action` is `stat`, `open`, `read`, `write`, `exec`, `delete`, or `connect`, and the decoy is
   a path decoy and either `target` is a path whose canonical form (under
   `watch.path_aliases`) equals the decoy's `canonical_location` or `target_inode`
   equals the decoy's `decoy_inodes` entry, which catches hard links; or the decoy is an

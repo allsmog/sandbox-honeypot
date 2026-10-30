@@ -30,7 +30,7 @@ The application exposes one `run` entrypoint that takes a single JSON object.
    in an account whose audit trail (including denied calls) you collect. A made-up
    key would never be logged when used. Pass only the SHA-256 of its access key ID.
 
-2. **Plan decoys.** Put at least 32 random bytes in `SANDBOX_HONEYPOT_SEED` (never on
+2. **Plan decoys** on a system outside the protected host. Put at least 32 random bytes in `SANDBOX_HONEYPOT_SEED` (never on
    the command line), then describe the deployment. `exposure` lists **host-side**
    paths any sandbox can reach (mount and share sources, not guest paths) and the
    addresses its egress allows (`*:*` for unrestricted). `occupied` lists real host
@@ -47,19 +47,23 @@ The application exposes one `run` entrypoint that takes a single JSON object.
    ```
 
    The result has three parts: `material` holds derived secrets (OpenSSH key,
-   Kubernetes token), `watch` describes what to monitor and contains no secrets, and
+   Kubernetes token), `watch` describes what to monitor (no secrets, but keep it off the
+   protected host because it names the decoys), and
    `skipped` explains each decoy left out. To rotate one decoy, raise its epoch.
 
 3. **Place the decoys and watch them.** Write each credential decoy (the AWS one from
    your IAM user, the rest from `material`), create the socket and endpoint decoys,
    record their device and inode numbers, then delete `material`. Point host-side
    sensors (fanotify, auditd, eBPF, flow logs, cloud audit logs) at the `watch`
-   locations, and ship each event off the host immediately. Enable `LogLevel
+   locations using notification-only mechanisms (never blocking or denying access),
+   and ship each event off the host immediately. Nothing on the host may react
+   visibly: the attacker must not learn they touched a decoy. Enable `LogLevel
    VERBOSE` on SSH servers and a token webhook for Kubernetes so credential use is
-   logged. Run a self-test prober that touches every decoy on a schedule. Version
+   logged. Run a self-test prober that touches every decoy on a jittered schedule
+   without changing file timestamps. Version
    0.1.0 does not do this for you.
 
-4. **Evaluate events.** Send `watch`, each sandbox's runtime process identities (PID
+4. **Evaluate events** off the host. Send `watch`, each sandbox's runtime process identities (PID
    and start ticks), maintenance suppressions (by executable and uid), the prober,
    an observation window, decoy inodes, and sensor events as
    `{"operation": "evaluate", ...}`. The result reports `breached` with critical

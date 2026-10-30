@@ -15,6 +15,7 @@ specification_roots:
   - "component.md"
   - "decoys/spec.md"
   - "evaluation/spec.md"
+  - "stealth/spec.md"
 authoring_inputs:
   - kind: specification-to-source-skill
     uri: skills/specification-to-source/portable-application-implementation/SKILL.md
@@ -67,7 +68,7 @@ flowchart LR
     W -. "escape" .-> D["Host decoys"]
     X["Exposure, occupied assets,<br/>path aliases, custom decoys"] --> P["plan"]
     P -- "material (secret)" --> D
-    P -- "watch (not secret)" --> E["evaluate"]
+    P -- "watch (confidential)" --> E["evaluate"]
     D --> S["Host sensors<br/>(fanotify, auditd, eBPF, flow, cloud audit)"]
     S --> E
     E --> A["Alerts, incidents,<br/>sensor health"]
@@ -84,6 +85,8 @@ The tripwire's value depends on these properties:
 4. Every decoy contact that is not trusted maintenance or self-testing is critical,
    and with probes configured, a decoy whose monitoring stops working end to end is
    reported.
+5. The attacker cannot tell that they touched a decoy: decoys behave like real
+   assets, observation is passive, and nothing on the host reacts to the contact.
 
 Version 0.1.0 is a pure, deterministic decision engine. It MUST NOT read or write the
 filesystem, open network listeners, read the clock, or contact any network. Its only
@@ -121,7 +124,8 @@ receives the complete JSON argument array in one command-line token, so its valu
 `[request]`. The result is one JSON object written to standard output.
 
 The decoy catalog, locations, credential material, and `plan` are specified in
-`decoys/spec.md`; `evaluate` is specified in `evaluation/spec.md`.
+`decoys/spec.md`; `evaluate` is specified in `evaluation/spec.md`; the requirements
+that keep detection invisible to the attacker are in `stealth/spec.md`.
 
 Every object in a request is strict: unknown fields, missing required fields, and
 values of the wrong type are invalid. Identifier strings (`deployment_id`,
@@ -141,7 +145,8 @@ secret except as a test convenience:
   invalid at `/seed`. Operators SHOULD use at least 32 random bytes. A request `seed`
   adds the warning `seed-in-request` to the result.
 - The `plan` result separates `material` (derived credential secrets, to be handled
-  like the seed and used only to materialize decoys) from `watch` (no secrets).
+  like the seed and used only to materialize decoys) from `watch` (no credential secrets, but confidential because it
+  names the decoys; see `stealth/spec.md`).
   `evaluate` takes only `watch`, which identifies credentials by SHA-256 digest.
   Provided credentials enter `plan` only as digests.
 
@@ -206,6 +211,18 @@ escaped process, and SHALL NOT let a self-reported name or a reused PID change e
 - **GIVEN** the `watch` from the Kubernetes node plan and a decoy inode for `ssh-private-key` of device 2049, inode 1234
 - **WHEN** event `n1` connects to `[::ffff:169.254.169.254]:80` and event `n2` reads `/tmp/k` with target inode device 2049, inode 1234, both with all-null actors
 - **THEN** the alerts are `n1/metadata-endpoint` and `n2/ssh-private-key`, both `host-breach`
+
+### Requirement: Detection is invisible to the attacker
+
+The tripwire SHALL treat every interaction with a decoy as a hit, so an attacker cannot
+safely inspect a decoy, and decoy contact SHALL change nothing the attacker can observe
+(`stealth/spec.md`).
+
+#### Scenario: Metadata reconnaissance
+
+- **GIVEN** the `watch` from the gVisor cloud-VM plan
+- **WHEN** event `s1` performs `stat` on `/root/.aws/credentials` with an all-null actor
+- **THEN** the alert `s1/cloud-credentials` is `critical` with verdict `host-breach`
 
 ### Requirement: Malformed or missing telemetry is visible
 
