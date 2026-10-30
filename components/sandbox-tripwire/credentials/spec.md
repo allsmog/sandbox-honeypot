@@ -25,6 +25,11 @@ watched decoys have no material and a null `canary_digest`.
 `/root`, `NAME` beneath `/home/NAME`, and otherwise `dormant_user`, or `root` when
 that is null.
 
+Residual risks: some AWS APIs that reveal a key's identity are not logged, so a
+cautious attacker can test the AWS key unseen, and the `kubeconfig-token` format is a
+bootstrap-token shape that a Kubernetes-aware attacker may find unusual in a user's
+kubeconfig.
+
 A provided credential enters `plan` only as a digest, through `provided_credentials`
 (objects with exactly `decoy_id`, naming an included `aws-access-key` decoy, and
 `identifier_digest`, 64 lowercase hexadecimal characters). A derived credential uses

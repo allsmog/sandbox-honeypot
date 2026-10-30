@@ -33,9 +33,11 @@ no host side effects, and `plan` enforces the parts it can check.
   unwatched. On a host without a metadata service, the metadata decoy is reached
   through routing or address translation, never an interface address any user could
   list, and its backend runs in a network namespace no host process can reach directly.
-- The dormant account looks used: a login shell, ordinary home contents, and login
-  records consistent with occasional use, because an account that never logged in yet
-  holds credentials is a tell.
+- The dormant account looks used: a login shell, ordinary home contents, login
+  records, and occasional ordinary reads of its files, because an account that never
+  logged in yet holds credentials, or files whose access times never move, is a tell.
+- Decoys fit the platform: a metadata decoy only where DMI and cloud identity say the
+  host is a cloud instance of that provider.
 - A used decoy credential gets exactly the response a real credential without
   permissions gets: `AccessDenied` for the deny-all AWS key,
   `Permission denied (publickey)` for SSH, and `401` or `403` from Kubernetes.
@@ -94,6 +96,9 @@ from them rather than suppressing the backup tool, which copies decoys elsewhere
 access (exclude their processes in the sensor); package upgrades that change a
 suppressed executable's or expected helper's digest (add the new digest first);
 monitoring agents that probe the Docker socket, Docker API, or metadata endpoint
-(leave those opt-in decoys out); containers outside any sandbox that share the
+(leave those opt-in decoys out); boot-time writers of kernel interfaces, such as
+`systemd-sysctl` and crash handlers writing `core_pattern`, `systemd-binfmt` writing
+`register`, and systemd on cgroup v1 writing `release_agent` (suppress each with its
+`value_digest`); containers outside any sandbox that share the
 sandbox network's bridge and reach `gateway-ssh`; and rootless container tooling that
 registers `binfmt_misc` formats in its own user namespace on recent kernels.

@@ -29,7 +29,7 @@ loss appears as a sequence gap.
   as received, unknown fields included and before any repair, without `mac` and
   `received`, keyed with the 32 bytes decoded from its source's
   hexadecimal key; an event whose `mac` is missing or wrong is rejected at `/mac`. When
-  `off`, `mac` is ignored and the result warns `unauthenticated`.
+  `off`, a string or null `mac` is ignored and the result warns `unauthenticated`.
 - Sensor keys are a JSON object mapping each declared source to 64 lowercase
   hexadecimal characters, read from `SANDBOX_HONEYPOT_SENSOR_KEYS` when the request has
   no `sensor_keys` field. When `authentication` is `required`, exactly one of the two
@@ -58,13 +58,18 @@ and otherwise the `carry` of the result for the immediately preceding window. It
 exactly `window_end` (that window's `end`) and:
 
 - `sequences`: objects with exactly `source`, `sensor_instance`, `highest`,
-  `missing` (at most 64 objects with exactly `from` and `to`, the newest kept), and
-  `last_received`, one per instance, dropped once `last_received` is more than 86400
-  seconds before `window.end`;
+  `missing` (at most 16 objects with exactly `from` and `to`, the newest kept), and
+  `last_received`, one per instance, keeping the 4 most recently received instances
+  of each declared source;
 - `last_seen`: objects with exactly `source` and `received`;
 - `last_probe`: objects with exactly `decoy_id` and `received`;
 - `recent_hits` and `pending`: objects with exactly `event_id`, `decoy_id`, `source`,
-  `time`, and `received`, plus `missing_sources` for `pending` (Corroboration).
+  `time`, and `received`, plus `missing_sources` for `pending` (Corroboration), with
+  at most 16 `recent_hits` per decoy and source (the latest kept) and 16 `pending`
+  per decoy (older ones become uncorroborated).
+
+These caps bound `carry` by the number of declared sources and corroborated decoys,
+which operators keep small enough for requests to fit.
 
 The result's `carry` holds the updated values, sorted by source and instance, by
 source, in decoy order, and by time then event ID respectively.
@@ -92,7 +97,8 @@ An instance first seen while another instance of the same source is known, from
 ## Silence
 
 For each source with a non-null `max_silence_seconds`, take its carried `last_seen`
-time (or `window.start`), the `received` times of its accepted events, and
+time (or `window.start` when none is carried; the result carries an entry for every
+such source, so one that never reports still accumulates a gap), the `received` times of its accepted events, and
 `window.end`, in instant order: every consecutive pair more than
 `max_silence_seconds` apart is a **silence gap** (`source`, `from`, `to`). Sensors
 SHOULD emit `heartbeat` events, so a quiet sensor is distinguishable from a dead one.
@@ -102,7 +108,8 @@ SHOULD emit `heartbeat` events, so a quiet sensor is distinguishable from a dead
 `probe` is null or an object with exactly `executable` (path), `executable_digest`
 (64 lowercase hex), `uid` (integer), and `max_interval_seconds` (positive integer).
 When it is not null, every planted decoy is probed: take its carried `last_probe` time
-(or `window.start`), the `received` times of its probe hits, and `window.end`, in
+(or `window.start`, carried likewise for every planted decoy), the `received` times of
+its probe hits on its own location (not its companions), and `window.end`, in
 instant order; every consecutive pair more than `max_interval_seconds` apart is a
 **watch gap** (`decoy_id`, `from`, `to`). Watched decoys are not probed, because
 writing a kernel interface changes the host; silence gaps cover their sensors and the
@@ -123,7 +130,8 @@ sources, since a slower source's report arrives later. A hit missing one stays i
 `pending` while it was received at most `H` before `window.end`, and is judged again in
 each later batch; otherwise it is **uncorroborated** (`event_id`, `decoy_id`, and
 ascending `missing_sources`), as is a pending hit in a batch whose `corroboration` is
-null or no longer lists its decoy. `recent_hits` carries the hits on listed decoys
+null or no longer lists its decoy; its `missing_sources` are recomputed against the
+current listing. `recent_hits` carries the hits on listed decoys
 received at most `H` before `window.end`.
 
 ## Tamper lists and ordering

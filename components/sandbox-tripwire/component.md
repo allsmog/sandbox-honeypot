@@ -129,7 +129,8 @@ decoys. It assumes:
   an attacker who can run them with chosen arguments can read decoys without an
   alert. Keep suppressions few and bound to an executable digest, user, and, for
   kernel interfaces, the expected written value, and never suppress a shell or
-  general-purpose interpreter, which would trust every script it runs.
+  general-purpose interpreter, which would trust every script it runs, or a setuid,
+  setgid, or file-capability executable, which any user could run as its owner.
 
 It never runs code on the attacker's side, even to attribute them: identification is
 passive and uses only what host sensors recorded.
@@ -146,7 +147,8 @@ event under 20 KiB (`evaluation/spec.md`), so a request whose other fields stay 
 100 KiB can always carry one. Requests escape strings only as RFC 8785 does, the
 encoding these sizes assume. The result is one JSON
 object written to standard output. An operator MUST treat a failed, rejected, or
-skipped evaluation as an alert, since an attacker may try to make evaluation fail.
+skipped evaluation as an alert, since an attacker may try to make evaluation fail,
+and SHOULD investigate a sequence gap on a sensor that covers planted decoys as one.
 Because the request travels on a command line, `plan` and `evaluate` MUST run on a
 dedicated analysis host that no other user or workload shares, or with `/proc` mounted
 `hidepid=2`.
@@ -171,7 +173,7 @@ checked in this order, each reported at the field named:
    and its `window_end` differs from `window.start` (`/window/start`).
 3. A value that must be unique repeats: a decoy named twice in `include`, `exclude`,
    `relocate`, `epochs`, `provided_credentials`, `corroboration.decoys`, or
-   `ignore_stat`, a source, sandbox ID, process identity, harness ID, or
+   `ignore_stat`, a custom `decoy_id`, a source, sandbox ID, process identity, harness ID, or
    `decoy_inodes` path or device-inode pair (the later occurrence). Other lists, such
    as `suppressions`, `decoy_inodes`, and `retired_canaries`, may name a decoy more
    than once.
@@ -184,8 +186,8 @@ checked in this order, each reported at the field named:
    none is (that field).
 6. The alias set is invalid (the later of the two overlapping entries, at its `alias`
    if that overlaps, otherwise its `target`).
-7. The footprints of two relocated or custom decoys collide, or two items of one
-   footprint do (the later relocation's or custom decoy's `location`, or the later
+7. The footprints of two relocated or custom decoys collide, or two items of one of
+   their footprints do (the later relocation's or custom decoy's `location`, or the later
    cover file's `path`).
 8. A digest repeats among current and retired canaries (the later digest field).
 
@@ -229,8 +231,9 @@ including an `evaluate` request with rejected events, exits with status 0.
 fixed executable digest. Decoy credentials appear only as identifiers derived from
 `SEED`, because realistic literal keys would be flagged by secret scanners as leaks.
 
-Unstated values default as follows. Lists are empty. `probe`, `corroboration`,
-`carry`, `sandbox_gateway`, and every event detail field are null, and `ancestry` is
+Unstated values default as follows. A failure scenario's `plan` request is the gVisor
+cloud-VM request in `decoys/spec.md` with the stated change. Lists are empty. `probe`, `corroboration`,
+`carry`, `sandbox_gateway`, `mac`, and every event detail field are null, and `ancestry` is
 empty, except that an event whose `target` is a path has a `target_inode` matching no
 `decoy_inodes` entry, and `include` lists all three opt-in decoys. `sources` declares every
 source the scenario mentions, signed by the sensor (by the collector for

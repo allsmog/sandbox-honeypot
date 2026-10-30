@@ -40,8 +40,9 @@ request.
 
 An event has exactly these fields. The first ten are **core**; the rest are
 **detail**. Lengths are bytes of the value as RFC 8785 (JCS) serializes it, escapes
-included: identifiers and `target_fs.type` at most 256, `comm` at most 64, paths and
-targets at most 4096, and `environment_names` at most 2048 in total; `ancestry` has at
+included and surrounding quotes excluded: identifiers and `target_fs.type` at most
+256, `comm` at most 64, paths and targets at most 4096, and the `environment_names`
+array, serialized whole, at most 2048; `ancestry` has at
 most 64 entries. Sensors truncate longer values before signing, at a character
 boundary, keeping the nearest 32 and farthest 32 entries of a longer `ancestry`, so a
 deep chain of forks cannot push the host-side runtime or harness out of it. These
@@ -60,7 +61,7 @@ large to submit.
 | `action` | string | One of the actions below. |
 | `target` | string | What was acted on: a path, an address endpoint, or for `credential-use` the lowercase hexadecimal SHA-256 of the observed identifier, hashed by the collector so no credential reaches the request. For `rename`, `link`, and `delete`, the path of the existing object before the operation; a `rename` or `link` also yields an event whose target is the destination, with the inode of any object it replaces (for an exchange, each object's). |
 | `mac` | string or null | See `telemetry/spec.md`. |
-| `target_inode` | object or null | Exactly `device` and `inode` of the object, encoded as in `decoy_inodes`. Sensors MUST supply it whenever `target` is a path. |
+| `target_inode` | object or null | Exactly `device` and `inode` of the object, encoded as in `decoy_inodes`. Sensors MUST supply it whenever `target` is a path naming an existing object. |
 | `target_fs` | object or null | Exactly `type` (filesystem type, such as `proc` or `cgroup`) and `path` (path within that filesystem, without a leading `/`). |
 | `target_digest` | string or null | For `exec`, the SHA-256 of the file named by the exec (for a script, the script), computed from the exec'd file object at exec time. |
 | `written_digest` | string or null | For `write`, the SHA-256 of the bytes passed to that one `write(2)` call. |
@@ -69,7 +70,7 @@ large to submit.
 Actions are `stat` (also `access`, `readlink`, and extended-attribute reads), `open`
 (read-only), `open-write`, `read`, `write`, `truncate`, `exec`, `delete`, `rename`,
 `link`, `attr` (changes of mode, owner, extended attributes, or timestamps), `mount`
-(a mount placed or moved onto the target; one setting a cgroup `release_agent` option
+(a mount in the initial mount namespace placed or moved onto the target; one setting a cgroup `release_agent` option
 is also reported as a `write` with that `target_fs`),
 `connect`, `credential-use`, and `heartbeat` (a liveness record, which never hits).
 Sensors MUST observe through LSM or kernel-function hooks on the object (such as
@@ -86,15 +87,21 @@ resolved lexically. Endpoint decoys MUST also be observed where connections arri
 (accepts on the decoy listener, netfilter or conntrack records for its address, or the
 real server's logs when `listener` is false), because guests of VM and user-space
 network sandboxes reach host endpoints without any host `connect`, and TCP fast-open
-and raw packets bypass connect hooks; such flow sources report the connecting
-sandbox in `actor.sandbox_id` when they can tell it. Hooks always allow the operation
-(`stealth/spec.md`).
+and raw packets bypass connect hooks. Such arrival sources report action `connect`,
+the connecting sandbox in `actor.sandbox_id` when they can tell it, and, for a peer
+socket on the same host, `actor` filled from the process owning that socket, so probes
+and suppressions match them. Hooks always allow the operation (`stealth/spec.md`).
+Sensors MUST keep events on the watched set in buffer capacity that other activity
+cannot exhaust, so flooding ordinary files cannot turn a decoy hit into a sequence
+gap.
 
 Sensors MUST report a path as the kernel-resolved absolute path of the object from the
 root of the initial mount namespace (as `d_path` resolves it against PID 1's root, so
-`chroot` does not change it); when the object is unreachable from there, as in a
-private mount namespace, they report the path within the actor's namespace, which only
-an inode binding can match. A `target` MUST be, or the event is rejected at `/target`:
+`chroot` does not change it) when the object's mount belongs to that namespace, and
+otherwise as `/proc/PID/root` (PID being the actor's) followed by its path within the
+actor's root, which no decoy location equals, so only an inode binding matches it, and
+a container's own `/root/.aws` never does. A refused lookup is reported by the mount
+namespace its walk was in. A `target` MUST be, or the event is rejected at `/target`:
 the empty string for `heartbeat`; 64 lowercase hexadecimal characters for
 `credential-use`; a path or an address endpoint for `connect`; and otherwise a string
 starting with `/`, which is matched as a path even when truncated.
@@ -106,7 +113,7 @@ An event with an invalid core field is **rejected** and recorded at the first in
 field. An event with a valid core but an invalid detail field is evaluated with that
 field treated as null (`actor` fields individually; `ancestry` as empty) and recorded
 in `repaired`, so a crafted file name or environment cannot turn an attacker's own hit
-into a rejection. A path event whose `target_inode` is null or missing, and an unknown
+into a rejection. A path event naming an existing object whose `target_inode` is null or missing, and an unknown
 event field (which is dropped), are recorded in `repaired` the same way, since a
 missing inode leaves bind mounts and hard links unmatched. A repeated object key makes
 the request invalid at that object, except inside an element of `events`, where it
@@ -133,7 +140,7 @@ endpoint target is canonicalized with `0.0.0.0` rewritten to `127.0.0.1` and `[:
   `heartbeat` (and `stat` for decoys in `ignore_stat`), and either `target_inode`
   equals a `decoy_inodes` entry of that decoy (catching hard links and bind mounts) or
   the canonical target equals its `canonical_location` or one of its
-  `companion_paths`, or for `mount` lies above one of them; or
+  `companion_paths`, or for `mount` is the parent directory of one of them; or
 - an endpoint decoy, when `action` is `connect` and the canonical target equals its
   `canonical_location`.
 
@@ -144,8 +151,8 @@ applied to whatever fields of a rejected event parse, lists it in `rejected_hits
 (`index` and `decoy_id`), because a malformed or forged event on a decoy needs
 investigation. When a placed planted path decoy or one of its companions has no
 `decoy_inodes` entry, the result warns `missing-inode-binding`; when an accepted event's
-canonical target is a bound path but its `target_inode` differs from that path's
-binding, it warns `inode-binding-mismatch`, since a replaced decoy or a wrongly encoded
+canonical target is a bound path but its non-null `target_inode` differs from that
+path's binding, it warns `inode-binding-mismatch`, since a replaced decoy or a wrongly encoded
 device would otherwise leave hard links and private mounts unmatched. A rejected event
 whose `action` is invalid is matched under every rule its valid fields allow.
 

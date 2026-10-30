@@ -121,14 +121,17 @@ followed by the request's `path_aliases` (objects with exactly `alias` and `targ
 It is valid only when every `alias` is distinct, no `target` equals or lies beneath any
 `alias`, and no `alias` equals or lies beneath any `target`, so one rewrite always
 reaches a fixed point. The **canonical** form of a path replaces
-its longest alias prefix with that alias's target.
+its longest alias prefix with that alias's target. Sensors report resolved paths, so
+every symlinked ancestor of a footprint path (such as `/home` → `/var/home`) MUST be
+aliased.
 
 An address endpoint is `ADDRESS:PORT`: an IPv4 dotted quad or a bracketed IPv6
 address, and a port from 1 to 65535. Its canonical form writes IPv4 in decimal without
 leading zeros, IPv6 in RFC 5952 form, an IPv4-mapped IPv6 address as plain IPv4, and
 the port without leading zeros. Host names are not endpoints. An exposure endpoint is
 `SCOPE:PORTS`: `SCOPE` is an address, a CIDR block (IPv4 `a.b.c.d/n`, or IPv6
-`[address]/n`), or `*`; `PORTS` is a port or `*`. A decoy endpoint is exposed when its
+`[address]/n`, an IPv4-mapped block being its IPv4 block), or `*`, every
+non-loopback address of both families; `PORTS` is a port or `*`. A decoy endpoint is exposed when its
 canonical address lies in the scope and its port is in the ports. IPv4 addresses lie
 only in IPv4 scopes. A sandbox's loopback is normally its own, so `*` and CIDR scopes
 never cover loopback addresses; only an exposure endpoint naming a loopback address
@@ -177,7 +180,8 @@ in this order and skipped with the first matching reason:
 Every other decoy is placed. A skipped decoy's `location` is the candidate that was
 checked: its layout choice, the first candidate when none was eligible, or null for
 `helper-exec`. The request is invalid when the footprints of two relocated or custom
-decoys collide, or two items of one footprint do (see `component.md` for the reported
+decoys collide, or two items of one of their footprints do; such a collision within a
+layout candidate's footprint makes it ineligible and skips it as `collision` (see `component.md` for the reported
 field). The result has exactly `operation`, `warnings` (in this order when
 applicable: `seed-in-request`, and `public-socket-name` when `runtime-control` is
 placed at a catalog candidate), `watch`, `material`, `companions`, and `skipped`
