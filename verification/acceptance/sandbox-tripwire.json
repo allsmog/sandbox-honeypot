@@ -1,0 +1,454 @@
+{
+  "schema": "literate-ai/component-acceptance-oracle@1",
+  "component": "sandbox-tripwire",
+  "specification_set_identity": "sha256:22321348f5e45d1536bd4da4079a2faca0436ea2ccd2a9b3f23ed9bc9becf559",
+  "cases": [
+    {
+      "case_id": "escape-through-alias-by-inode",
+      "arguments": [
+        {
+          "operation": "evaluate",
+          "watch": {
+            "deployment_id": "acc-host",
+            "runtime": "generic",
+            "host_profile": "linux-host",
+            "path_aliases": [
+              {
+                "alias": "/var/run",
+                "target": "/run"
+              }
+            ],
+            "decoys": [
+              {
+                "decoy_id": "runtime-control",
+                "kind": "socket",
+                "location": "/run/sandbox-admin.sock",
+                "canonical_location": "/run/sandbox-admin.sock",
+                "companion_paths": [],
+                "listener": true,
+                "scope": "exact",
+                "name": null,
+                "fs_type": null,
+                "fs_path": null,
+                "reachable": false,
+                "technique": "T1611",
+                "credential_format": null,
+                "epoch": null,
+                "canary_digest": null
+              }
+            ],
+            "retired": []
+          },
+          "sandboxes": [
+            {
+              "sandbox_id": "sbx-a",
+              "runtime_processes": [
+                {
+                  "pid": 4100,
+                  "start_ticks": 500
+                }
+              ],
+              "harness_processes": []
+            }
+          ],
+          "suppressions": [],
+          "expected_helpers": [],
+          "ignore_stat": [],
+          "harness_signatures": [],
+          "sources": [
+            {
+              "source": "ebpf",
+              "signer": "sensor",
+              "max_silence_seconds": null,
+              "max_delay_seconds": 300
+            }
+          ],
+          "probe": null,
+          "corroboration": null,
+          "authentication": "off",
+          "max_clock_skew_seconds": 300,
+          "carry": null,
+          "window": {
+            "start": "2026-10-30T00:00:00Z",
+            "end": "2026-10-31T00:00:00Z"
+          },
+          "decoy_inodes": [
+            {
+              "decoy_id": "runtime-control",
+              "path": "/run/sandbox-admin.sock",
+              "device": "25",
+              "inode": "901"
+            }
+          ],
+          "events": [
+            {
+              "event_id": "e1",
+              "deployment_id": "acc-host",
+              "time": "2026-10-30T12:00:00Z",
+              "received": "2026-10-30T12:00:00Z",
+              "source": "ebpf",
+              "sensor_instance": "boot-1",
+              "sequence": 1,
+              "action": "connect",
+              "target": "/var/run/sandbox-admin.sock",
+              "mac": null,
+              "target_inode": {
+                "device": "25",
+                "inode": "901"
+              },
+              "target_fs": null,
+              "target_digest": null,
+              "written_digest": null,
+              "actor": {
+                "process": {
+                  "pid": 5000,
+                  "start_ticks": 777
+                },
+                "ancestry": [
+                  {
+                    "pid": 4100,
+                    "start_ticks": 500
+                  },
+                  {
+                    "pid": 1,
+                    "start_ticks": 1
+                  }
+                ],
+                "helper_depth": null,
+                "executable": null,
+                "executable_digest": null,
+                "uid": null,
+                "comm": null,
+                "environment_names": null,
+                "sandbox_id": null
+              }
+            }
+          ]
+        }
+      ],
+      "expected_result": {
+        "suppressed": [],
+        "rejected": [],
+        "repaired": [],
+        "rejected_hits": [],
+        "duplicate_event_ids": [],
+        "sequence_gaps": [],
+        "late_fills": [],
+        "sequence_duplicates": [],
+        "sensor_restarts": [],
+        "silence_gaps": [],
+        "watch_gaps": [],
+        "uncorroborated": [],
+        "clock_skew": [],
+        "operation": "evaluate",
+        "deployment_id": "acc-host",
+        "warnings": [
+          "unauthenticated"
+        ],
+        "breached": true,
+        "degraded": false,
+        "alerts": [
+          {
+            "alert_id": "e1/runtime-control",
+            "event_id": "e1",
+            "decoy_id": "runtime-control",
+            "kind": "socket",
+            "location": "/run/sandbox-admin.sock",
+            "observed_target": "/var/run/sandbox-admin.sock",
+            "severity": "critical",
+            "verdict": "escape-confirmed",
+            "techniques": [
+              "T1611"
+            ],
+            "sandbox_id": "sbx-a",
+            "attribution": "ancestry",
+            "harness": null,
+            "executable": null,
+            "uid": null,
+            "comm": null,
+            "time": "2026-10-30T12:00:00Z",
+            "source": "ebpf"
+          }
+        ],
+        "incidents": [
+          {
+            "sandbox_id": "sbx-a",
+            "first_seen": "2026-10-30T12:00:00Z",
+            "last_seen": "2026-10-30T12:00:00Z",
+            "alert_ids": [
+              "e1/runtime-control"
+            ]
+          }
+        ],
+        "carry": {
+          "window_end": "2026-10-31T00:00:00Z",
+          "sequences": [
+            {
+              "source": "ebpf",
+              "sensor_instance": "boot-1",
+              "highest": 1,
+              "missing": [],
+              "last_received": "2026-10-30T12:00:00Z"
+            }
+          ],
+          "last_seen": [],
+          "last_probe": [],
+          "recent_hits": [],
+          "pending": []
+        },
+        "probe_hits": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "case_id": "retired-token-use-with-noise",
+      "arguments": [
+        {
+          "operation": "evaluate",
+          "watch": {
+            "deployment_id": "acc-host",
+            "runtime": "generic",
+            "host_profile": "linux-host",
+            "path_aliases": [
+              {
+                "alias": "/var/run",
+                "target": "/run"
+              }
+            ],
+            "decoys": [
+              {
+                "decoy_id": "runtime-control",
+                "kind": "socket",
+                "location": "/run/sandbox-admin.sock",
+                "canonical_location": "/run/sandbox-admin.sock",
+                "companion_paths": [],
+                "listener": true,
+                "scope": "exact",
+                "name": null,
+                "fs_type": null,
+                "fs_path": null,
+                "reachable": false,
+                "technique": "T1611",
+                "credential_format": null,
+                "epoch": null,
+                "canary_digest": null
+              }
+            ],
+            "retired": [
+              {
+                "decoy_id": "kubeconfig",
+                "kind": "credential-file",
+                "technique": "T1552.001",
+                "epoch": 0,
+                "canary_digest": "f0785ae028bccb1a8a8cc7e56915fc90865caabaefe36723826469198d1048c4"
+              }
+            ]
+          },
+          "sandboxes": [],
+          "suppressions": [],
+          "expected_helpers": [],
+          "ignore_stat": [],
+          "harness_signatures": [],
+          "sources": [
+            {
+              "source": "ebpf",
+              "signer": "sensor",
+              "max_silence_seconds": null,
+              "max_delay_seconds": 300
+            },
+            {
+              "source": "cloudtrail",
+              "signer": "collector",
+              "max_silence_seconds": null,
+              "max_delay_seconds": 900
+            }
+          ],
+          "probe": null,
+          "corroboration": null,
+          "authentication": "off",
+          "max_clock_skew_seconds": 300,
+          "carry": null,
+          "window": {
+            "start": "2026-10-30T00:00:00Z",
+            "end": "2026-10-31T00:00:00Z"
+          },
+          "decoy_inodes": [
+            {
+              "decoy_id": "runtime-control",
+              "path": "/run/sandbox-admin.sock",
+              "device": "25",
+              "inode": "901"
+            }
+          ],
+          "events": [
+            {
+              "event_id": "c1",
+              "deployment_id": "acc-host",
+              "time": "2026-10-30T12:00:00Z",
+              "received": "2026-10-30T12:01:00Z",
+              "source": "cloudtrail",
+              "sensor_instance": "trail-1",
+              "sequence": 1,
+              "action": "credential-use",
+              "target": "f0785ae028bccb1a8a8cc7e56915fc90865caabaefe36723826469198d1048c4",
+              "mac": null,
+              "target_inode": null,
+              "target_fs": null,
+              "target_digest": null,
+              "written_digest": null,
+              "actor": {
+                "process": null,
+                "ancestry": [],
+                "helper_depth": null,
+                "executable": null,
+                "executable_digest": null,
+                "uid": null,
+                "comm": null,
+                "environment_names": null,
+                "sandbox_id": null
+              }
+            },
+            {
+              "event_id": "h1",
+              "deployment_id": "acc-host",
+              "time": "2026-10-30T12:00:30Z",
+              "received": "2026-10-30T12:00:30Z",
+              "source": "ebpf",
+              "sensor_instance": "boot-1",
+              "sequence": 1,
+              "action": "heartbeat",
+              "target": "",
+              "mac": null,
+              "target_inode": null,
+              "target_fs": null,
+              "target_digest": null,
+              "written_digest": null,
+              "actor": {
+                "process": null,
+                "ancestry": [],
+                "helper_depth": null,
+                "executable": null,
+                "executable_digest": null,
+                "uid": null,
+                "comm": null,
+                "environment_names": null,
+                "sandbox_id": null
+              }
+            },
+            {
+              "event_id": "i1",
+              "deployment_id": "acc-host",
+              "time": "2026-10-30T12:02:00Z",
+              "received": "2026-10-30T12:02:00Z",
+              "source": "ebpf",
+              "sensor_instance": "boot-1",
+              "sequence": 2,
+              "action": "stat",
+              "target": "/etc/passwd",
+              "mac": null,
+              "target_inode": {
+                "device": "25",
+                "inode": "10"
+              },
+              "target_fs": null,
+              "target_digest": null,
+              "written_digest": null,
+              "actor": {
+                "process": null,
+                "ancestry": [],
+                "helper_depth": null,
+                "executable": null,
+                "executable_digest": null,
+                "uid": null,
+                "comm": null,
+                "environment_names": null,
+                "sandbox_id": null
+              }
+            }
+          ]
+        }
+      ],
+      "expected_result": {
+        "suppressed": [],
+        "rejected": [],
+        "repaired": [],
+        "rejected_hits": [],
+        "duplicate_event_ids": [],
+        "sequence_gaps": [],
+        "late_fills": [],
+        "sequence_duplicates": [],
+        "sensor_restarts": [],
+        "silence_gaps": [],
+        "watch_gaps": [],
+        "uncorroborated": [],
+        "clock_skew": [],
+        "operation": "evaluate",
+        "deployment_id": "acc-host",
+        "warnings": [
+          "unauthenticated"
+        ],
+        "breached": true,
+        "degraded": false,
+        "alerts": [
+          {
+            "alert_id": "c1/kubeconfig",
+            "event_id": "c1",
+            "decoy_id": "kubeconfig",
+            "kind": "credential-file",
+            "location": null,
+            "observed_target": null,
+            "severity": "critical",
+            "verdict": "credential-exfiltrated",
+            "techniques": [
+              "T1552.001",
+              "T1078"
+            ],
+            "sandbox_id": null,
+            "attribution": null,
+            "harness": null,
+            "executable": null,
+            "uid": null,
+            "comm": null,
+            "time": "2026-10-30T12:00:00Z",
+            "source": "cloudtrail"
+          }
+        ],
+        "incidents": [
+          {
+            "sandbox_id": null,
+            "first_seen": "2026-10-30T12:00:00Z",
+            "last_seen": "2026-10-30T12:00:00Z",
+            "alert_ids": [
+              "c1/kubeconfig"
+            ]
+          }
+        ],
+        "carry": {
+          "window_end": "2026-10-31T00:00:00Z",
+          "sequences": [
+            {
+              "source": "cloudtrail",
+              "sensor_instance": "trail-1",
+              "highest": 1,
+              "missing": [],
+              "last_received": "2026-10-30T12:01:00Z"
+            },
+            {
+              "source": "ebpf",
+              "sensor_instance": "boot-1",
+              "highest": 2,
+              "missing": [],
+              "last_received": "2026-10-30T12:02:00Z"
+            }
+          ],
+          "last_seen": [],
+          "last_probe": [],
+          "recent_hits": [],
+          "pending": []
+        },
+        "probe_hits": 0,
+        "ignored": 1
+      }
+    }
+  ]
+}

@@ -39,6 +39,20 @@
     },
     "artifact_publication": "metadata-only"
   },
+  "lifecycle_driver": {
+    "schema": "urn:literate-ai:schema:v2:project-lifecycle-driver",
+    "binding": "standard",
+    "framework_distribution_identity": {
+      "schema": "urn:literate-ai:schema:v1:content-identity",
+      "algorithm": "sha256",
+      "digest": "9d77ec5dbab6340b866efacebd054ad4601f34b6b451a6ca6401e53c368abcc0"
+    },
+    "policy_identity": {
+      "schema": "urn:literate-ai:schema:v1:content-identity",
+      "algorithm": "sha256",
+      "digest": "a5ca0d6d13daff0199f218c5e4af723a2cec87b927e75dd3a731c511b5d85ac7"
+    }
+  },
   "source_cache": {
     "schema": "urn:literate-ai:schema:v2:source-cache-configuration",
     "mode": "read-write",
@@ -62,6 +76,35 @@
     "require_unique": true
   },
   "test_receipt": "verification/current.json",
+  "test_receipt_policy": {
+    "schema": "urn:literate-ai:schema:v1:project-test-receipt-policy",
+    "suite_id": "literate-ai-standard",
+    "suite_version": "1.0.0",
+    "runner_identity": {
+      "schema": "urn:literate-ai:schema:v1:content-identity",
+      "algorithm": "sha256",
+      "digest": "c215d6013e8a12330fe31a28107c3b84d77e9b4c1bc09cf2ad847e25dda59488"
+    },
+    "required_evidence_kinds": [
+      "acceptance-result",
+      "build-result",
+      "generation-provenance",
+      "lifecycle-command",
+      "lifecycle-plan",
+      "lifecycle-request",
+      "observation-result",
+      "resolved-sbom",
+      "security-scan-report",
+      "source-cache-decision",
+      "source-cache-lifecycle",
+      "source-intelligence",
+      "source-sbom",
+      "test-report",
+      "test-runner",
+      "workspace-admission"
+    ],
+    "minimum_test_count": 1
+  },
   "default_flavor_selectors": [
     "+flavor://literate-ai/lang-python",
     "+flavor://literate-ai/build-make",
