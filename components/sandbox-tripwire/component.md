@@ -171,14 +171,15 @@ first failure. First, each field is checked on its own, in the order this
 specification lists it, depth first, arrays in index order. Then cross-field rules are
 checked in this order, each reported at the field named:
 
-1. The seed is absent, given both in the request and the environment, or too short
-   (`/seed`); or, when authentication is required, the sensor keys are absent, given
+1. For `plan`, the seed is absent, given both in the request and the environment, or
+   too short (`/seed`); or, when authentication is required, the sensor keys are absent, given
    in both, malformed in the environment, or do not name exactly the declared sources
    (`/sensor_keys`).
-2. `watch` is inconsistent: a repeated decoy ID, an invalid alias set, a
-   `canonical_location` that is not the canonical form of its `location`, or a
-   repeated non-null digest (the later offending field within `watch`, chosen for
-   aliases as in rule 7). Later rules read `watch` only once it passes.
+2. `watch` is inconsistent, checked in this order: a decoy ID repeated within
+   `watch.decoys`, an invalid alias set, a `canonical_location` that is not the
+   canonical form of its `location`, or a non-null digest repeated across `decoys` and
+   `retired` (the later offending field within `watch`, chosen for aliases as in rule
+   7). Later rules read `watch` only once it passes.
 3. `window.end` is not after `window.start` (`/window/end`), or `carry` is not null
    and its `window_end` differs from `window.start` (`/window/start`).
 4. A value in the request that must be unique repeats: a decoy named twice in

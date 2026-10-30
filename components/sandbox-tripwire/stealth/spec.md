@@ -34,8 +34,8 @@ no host side effects, and `plan` enforces the parts it can check.
   through routing or address translation, never an interface address any user could
   list, and its backend runs in a network namespace no host process can reach directly.
 - The dormant account looks used: a login shell, ordinary home contents with plausible
-  timestamps created together with the decoys, and plausible login records (`lastlog`,
-  `wtmp`). Its decoys' access times stay at materialization, since any
+  timestamps, and login records consistent with them (`lastlog` and `wtmp`, or their
+  successors). Its decoys' access times stay at materialization, since any
   read or timestamp change is a hit; an attacker comparing access times can notice
   this, an accepted residual risk.
 - Decoys fit the platform: a metadata decoy only where DMI and cloud identity say the
@@ -101,7 +101,8 @@ file-integrity monitors, antivirus, and secret scanners that open credential pat
 (suppress them by executable, digest, and user, running interpreted scanners as
 directly executed scripts, or keep decoys out of their scope); backups (exclude decoys
 from them rather than suppressing the backup tool, which copies decoys elsewhere); the sensors' own file
-access (exclude their processes in the sensor only by exact process identity, never by
+access (including notify marks a sensor places on decoy directories; exclude their processes
+in the sensor only by exact process identity, never by
 digest, `comm`, or another name, since the engine's lineage checks never see an
 excluded event); package upgrades that change a
 suppressed executable's or expected helper's digest (add the new digest first);

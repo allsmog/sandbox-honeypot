@@ -153,7 +153,8 @@ IDs); optional `seed`; `context`;
 arrives, never an unspecified address in any spelling, which is invalid at
 `/sandbox_gateway`, or null; it is null for user-space stacks such as slirp4netns,
 pasta, or gvproxy, which deliver gateway traffic to host loopback, where host tools
-use SSH legitimately); `exposure`; `occupied`; `path_aliases`;
+use SSH legitimately, so sandboxes on those stacks have no gateway decoy, a residual
+gap); `exposure`; `occupied`; `path_aliases`;
 `exclude`; `relocate`; `custom_decoys`; `epochs`; `provided_credentials`;
 `retired_canaries`; and `cover_files`.
 
