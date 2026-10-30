@@ -23,7 +23,7 @@ equal only when both fields are, so a reused PID never matches.
 | --- | --- | --- |
 | `operation` | string | `evaluate`. |
 | `watch` | object | A `watch` object from a `plan` result. |
-| `sandboxes` | array | Objects with exactly `sandbox_id`, `runtime_processes` (nonempty identities of that sandbox's runtime on the host, such as the gVisor sandbox and gofer or the VMM), and `harness_processes` (identities of the agent harness that drives it, possibly empty). Sandbox IDs and identities are unique. |
+| `sandboxes` | array | Objects with exactly `sandbox_id`, `runtime_processes` (nonempty identities of that sandbox's runtime on the host, such as the gVisor sandbox and gofer or the VMM), and `harness_processes` (identities of the agent harness that drives it, possibly empty). Sandbox IDs and identities are unique. Operators keep listing a sandbox after it ends, until reboot, because escaped descendants can outlive it. |
 | `suppressions` | array | Trusted maintenance: objects with exactly `decoy_id` (in `watch.decoys`), `executable` (path), `executable_digests` (nonempty array of 64 lowercase hex SHA-256 digests of acceptable versions of the executable file), `uid` (integer), and `value_digest` (64 lowercase hex for a kernel interface, null otherwise). |
 | `expected_helpers` | array | Executables the kernel legitimately launches as user-mode helpers, checked at every exec by a depth-0 process and never a shell or general-purpose interpreter: objects with exactly `path` (the fully resolved file the kernel execs: on merged-`/usr` systems `/usr/bin/kmod`, not `/sbin/modprobe`) and `digests` (nonempty array of SHA-256 digests of acceptable versions of that file; for a script, of the script, not its interpreter). Operators add a new version's digest before upgrading the package that ships it. |
 | `ignore_stat` | array of strings | Planted path decoys in `watch.decoys` for which `stat` on the decoy or its companions is not a hit, where people routinely long-list the directory. This trades away detection of metadata reconnaissance on those decoys. |
@@ -57,7 +57,7 @@ large to submit.
 | `received` | timestamp | Stamped on arrival by the collector, never by the sensor; MUST lie in the window. |
 | `source` | string | A source declared in `sources`. |
 | `sensor_instance` | string | Identifies one run of the signer, such as a boot ID plus start time. |
-| `sequence` | integer | The signer's counter for this instance, incremented for every event it ships. |
+| `sequence` | integer | The signer's counter for this source and instance, incremented for every event it ships. |
 | `action` | string | One of the actions below. |
 | `target` | string | What was acted on: a path, an address endpoint, or for `credential-use` the lowercase hexadecimal SHA-256 of the observed identifier, hashed by the collector so no credential reaches the request. For `rename`, `link`, and `delete`, the path of the existing object before the operation; a `rename` or `link` also yields an event whose target is the destination and whose `target_inode` is that of any object it replaces (for an exchange, each object's). |
 | `mac` | string or null | See `telemetry/spec.md`. |
@@ -65,7 +65,7 @@ large to submit.
 | `target_fs` | object or null | Exactly `type` (filesystem type, such as `proc` or `cgroup`) and `path` (path within that filesystem, without a leading `/`). |
 | `target_digest` | string or null | For `exec`, the SHA-256 of the file named by the exec (for a script, the script), computed from the exec'd file object at exec time. |
 | `written_digest` | string or null | For `write`, the SHA-256 of the bytes passed to that one `write(2)` call. |
-| `actor` | object | Exactly `process` (identity or null), `ancestry` (identities of the creation chain recorded when each process was created, parent first, including kernel threads and unaffected by later reparenting), `helper_depth` (0 when the kernel created this process to run a user-mode helper through `call_usermodehelper`, never for init or other kernel-thread children; `n` when its nearest such ancestor is its `n`th; otherwise null), `executable` (the path of the file the process exec'd, reported like a path target but null when unreachable from the initial mount namespace; for a script run directly, the script), `executable_digest` (64 lowercase hex SHA-256 of that file, computed from the exec'd file object at exec time, or null), `uid` (effective user ID in the initial user namespace, or null), `comm` (string or null), `environment_names` (array of strings or null), and `sandbox_id` (string or null). |
+| `actor` | object | Exactly `process` (identity or null), `ancestry` (identities of the creation chain recorded when each process was created, parent first, each the task that created the next even under `CLONE_PARENT`, including kernel threads and unaffected by later reparenting), `helper_depth` (0 when the kernel created this process to run a user-mode helper through `call_usermodehelper`, never for init or other kernel-thread children; `n` when its nearest such ancestor is its `n`th; otherwise null), `executable` (the path of the file the process exec'd, reported like a path target, or null when only a `/proc/PID/root` form exists; for a script run directly, the script), `executable_digest` (64 lowercase hex SHA-256 of that file, computed from the exec'd file object at exec time, or null), `uid` (effective user ID in the initial user namespace, or null), `comm` (string or null), `environment_names` (array of strings or null), and `sandbox_id` (string or null). |
 
 Actions are `stat` (also `access`, `readlink`, and extended-attribute reads), `open`
 (read-only), `open-write`, `read`, `write`, `truncate`, `exec`, `delete`, `rename`,
@@ -100,13 +100,18 @@ Sensors MUST drop in the kernel events that can never hit (actions other than `o
 its own reserved buffer capacity, so flooding other files, or harmless actions on
 watched ones, cannot turn a decoy hit into a sequence gap.
 
-Sensors MUST report a path as the kernel-resolved absolute path of the object from the
-root of the initial mount namespace (as `d_path` resolves it against PID 1's root, so
-`chroot` does not change it) when the object's mount belongs to that namespace, and
-otherwise as `/proc/PID/root` (PID being the actor's) followed by its path within the
-actor's root, which no decoy location equals, so only an inode binding matches it, and
-a container's own `/root/.aws` never does. A refused lookup is reported by the mount
-namespace its walk was in. A `target` MUST be, or the event is rejected at `/target`:
+Sensors MUST report a path as an absolute path at which the same object is reachable
+from the root of the initial mount namespace, whichever namespace or `chroot` the
+actor used: through the object's own mount when that belongs to the initial namespace,
+and otherwise through an initial-namespace mount of the same filesystem that contains
+it (as for mounts copied by `unshare` or systemd sandboxing, bind mounts, and container
+root filesystems). Only an object reachable by no such path is reported as
+`/proc/PID/root` (PID being the actor's) followed by its path within the actor's root,
+which no decoy location equals, so only an inode binding matches it, and a container's
+own `/root/.aws` never does. A refused lookup is reported the same way, through the
+mounts its walk crossed. Sensors MUST NOT report a connection to a loopback address
+from a socket outside the initial network namespace, which cannot reach the host's
+loopback. A `target` MUST be, or the event is rejected at `/target`:
 the empty string for `heartbeat`; 64 lowercase hexadecimal characters for
 `credential-use`; a path or an address endpoint for `connect`; and otherwise a string
 starting with `/`, which is matched as a path even when truncated.

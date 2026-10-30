@@ -97,12 +97,13 @@ file-integrity monitors, antivirus, and secret scanners that open credential pat
 (suppress them by executable, digest, and user, running interpreted scanners as
 directly executed scripts, or keep decoys out of their scope); backups (exclude decoys
 from them rather than suppressing the backup tool, which copies decoys elsewhere); the sensors' own file
-access (exclude their processes in the sensor); package upgrades that change a
+access (exclude their processes in the sensor, by executable digest and uid or exact
+process identity, never by `comm` or another self-reported name); package upgrades that change a
 suppressed executable's or expected helper's digest (add the new digest first);
 monitoring agents that probe the Docker socket, Docker API, or metadata endpoint
 (leave those opt-in decoys out); the materializer and decoy listeners themselves,
 which stat, rotate, re-create, and change attributes of decoys (suppress them or
-exclude them in the sensor); legitimate kernel helpers such as `request-key` handlers,
+exclude them in the sensor the same way); legitimate kernel helpers such as `request-key` handlers,
 `systemd-coredump`, apport, and orderly poweroff (list them in `expected_helpers`); boot-time writers of kernel interfaces, such as
 `systemd-sysctl` and crash handlers writing `core_pattern`, `systemd-binfmt` writing
 `register`, and systemd on cgroup v1 writing `release_agent` (suppress each with its

@@ -194,6 +194,11 @@ checked in this order, each reported at the field named:
    then `custom_decoys`, then `cover_files`, each in index order: its `location` or
    `path`).
 8. A digest repeats among current and retired canaries (the later digest field).
+9. Any other constraint between fields fails, such as a location of the wrong type for
+   its decoy or kind, a `credential_format` that does not fit `kind`, a
+   `decoy_inodes` path outside its decoy's footprint, repeated corroboration sources,
+   empty harness signature arrays, or a malformed sensor key (the later field in
+   field order).
 
 Identifier strings (`deployment_id`, `sandbox_id`, `event_id`, `source`,
 `sensor_instance`, `harness_id`) MUST be nonempty. Strings are compared and sorted by

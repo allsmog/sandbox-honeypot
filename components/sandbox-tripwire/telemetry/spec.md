@@ -17,7 +17,7 @@ the sensor signs its own events, `collector` when the off-host collector signs o
 behalf, as for cloud audit trails, SSH logs, and token webhooks, which cannot sign),
 `max_silence_seconds` (positive integer or null), and `max_delay_seconds` (positive
 integer), with unique sources. An event from an undeclared source is rejected at
-`/source`. Each signer numbers the events it ships per instance, so every event has a
+`/source`. Each signer numbers the events it ships per source and instance, so every event has a
 sequence and filtering happens before signing. A sensor also consumes one sequence
 number for each record it loses before shipping, as in a full kernel ring buffer, so
 loss appears as a sequence gap.
@@ -53,7 +53,9 @@ loss appears as a sequence gap.
 
 A request MUST fit in one command-line argument, so operators evaluate consecutive
 windows as batches; every event belongs to exactly one batch by its `received` time,
-so an event that arrives late is still evaluated. `carry` is null for the first batch
+so an event that arrives late is still evaluated. Collectors stamp each event with a
+distinct, increasing `received`, so any backlog can be split. A failed batch is
+retried, never skipped, since the next needs its `carry`. `carry` is null for the first batch
 and otherwise the `carry` of the result for the immediately preceding window. It has
 exactly `window_end` (that window's `end`) and:
 
@@ -73,7 +75,9 @@ exactly `window_end` (that window's `end`) and:
 These caps bound `carry` by the number of declared sources and corroborated decoys,
 which operators keep small enough for requests to fit.
 
-The result's `carry` holds the updated values, sorted by source and instance, by
+Carried entries for sources, decoys, or a probe the request no longer declares are
+dropped. The caps keep the latest by `time`, ties by event ID. The result's `carry`
+holds the updated values, sorted by source and instance, by
 source, in decoy order, and by time then event ID respectively.
 
 ## Sequences and restarts
@@ -111,13 +115,14 @@ SHOULD emit `heartbeat` events, so a quiet sensor is distinguishable from a dead
 (64 lowercase hex), `uid` (integer), and `max_interval_seconds` (positive integer).
 When it is not null, every planted decoy is probed: take its carried `last_probe` time
 (or `window.start`, carried likewise for every planted decoy), the `received` times of
-its probe hits on its own location (not its companions), and `window.end`, in
+its probe hits on its own location (by path, or by inode through the location's
+binding; not its companions), and `window.end`, in
 instant order; every consecutive pair more than `max_interval_seconds` apart is a
 **watch gap** (`decoy_id`, `from`, `to`). Probes SHOULD check a file decoy with `stat`,
-which raises no inotify event, and one in `ignore_stat` with `open`. A probe of an
-endpoint decoy counts only when every arrival source for it fills `actor` for local
-peers; operators MUST exclude probe connections from any that cannot, such as
-conntrack or SSH server logs. Watched decoys are not probed, because
+which raises no inotify event, and one in `ignore_stat` with `open`. Operators MUST
+probe an endpoint decoy only when every arrival source for it fills `actor` for local
+peers, and MUST NOT list sources that cannot (such as conntrack or SSH server logs) in
+its corroboration. Watched decoys are not probed, because
 writing a kernel interface changes the host; silence gaps cover their sensors and the
 external logs that record `credential-use`.
 
