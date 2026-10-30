@@ -23,11 +23,11 @@ decoys in every result. Every catalog `decoy_id` is reserved even when not inclu
 | --- | --- | --- | --- | --- |
 | `cloud-credentials` | `credential-file` | `/root/.aws/credentials`, `/home/{user}/.aws/credentials` | `T1552.001` | always |
 | `ssh-private-key` | `credential-file` | `/root/.ssh/id_ed25519`, `/home/{user}/.ssh/id_ed25519` | `T1552.004` | always |
-| `container-socket` | `socket` | `/var/run/docker.sock` | `T1552.007` | always |
+| `container-socket` | `socket` | `/var/run/docker.sock` | `T1552.007` | listed in `include` |
 | `metadata-endpoint` | `endpoint` | `169.254.169.254:80` | `T1552.005` | listed in `include` |
 | `runtime-control` | `socket` | per runtime, below | `T1611` | always |
 | `kubeconfig` | `credential-file` | `/root/.kube/config`, `/home/{user}/.kube/config` | `T1552.001` | `host_profile` is `kubernetes-node` |
-| `docker-api` | `endpoint` | `127.0.0.1:2375` | `T1552.007` | always |
+| `docker-api` | `endpoint` | `127.0.0.1:2375` | `T1552.007` | listed in `include` |
 | `gateway-ssh` | `endpoint` | `{gateway}:22` | `T1021.004` | `sandbox_gateway` is not null |
 | `core-pattern` | `kernel-interface` | `/proc/sys/kernel/core_pattern` | `T1611` | always |
 | `modprobe-path` | `kernel-interface` | `/proc/sys/kernel/modprobe` | `T1611` | always |
@@ -42,9 +42,10 @@ decoys in every result. Every catalog `decoy_id` is reserved even when not inclu
 is null. `{gateway}` is `sandbox_gateway`, bracketed when it is IPv6. The
 credential-file formats are `aws-access-key` for `cloud-credentials`, `ssh-ed25519`
 for `ssh-private-key`, and `kubeconfig-token` for `kubeconfig`; every other catalog
-decoy has a null format. `metadata-endpoint` is opt-in because cloud SDKs and
-agents probe that address by default on any host; include it only where nothing
-legitimate does.
+decoy has a null format. The **opt-in** decoys `metadata-endpoint`,
+`container-socket`, and `docker-api` are included only when listed in `include`,
+because cloud SDKs, monitoring agents, and habitual `docker` commands contact those
+addresses by default on many hosts; include them only where nothing legitimate does.
 
 `runtime-control` candidates sit directly in `/run`, outside any directory a runtime
 manages, and SHOULD be relocated to site-specific names because these are public:
@@ -94,6 +95,7 @@ memory and never write a file.
 
 - `exclude` lists catalog IDs to leave out. Every entry MUST be a catalog ID; an ID
   that is not included has no effect.
+- `include` lists opt-in catalog IDs; any other entry is invalid.
 - `relocate` moves included planted catalog decoys: objects with exactly `decoy_id`
   and `location` (of the decoy's location type). It replaces the layout choice.
 - `custom_decoys` appends decoys after the catalog, in request order: objects with
@@ -104,8 +106,10 @@ memory and never write a file.
   otherwise null), with one location, scope `exact`, and `reachable` false.
 
 Credential-file and socket locations are paths; endpoint locations are address
-endpoints. Each of `exclude`, `relocate`, `epochs`, `provided_credentials`, and
-`retired_canaries` names a decoy at most once.
+endpoints, never the unspecified address `0.0.0.0` or `[::]`. Each of `include`,
+`exclude`, `relocate`, `epochs`, and `provided_credentials` names a decoy at most once.
+Two items **collide** when their canonical paths are equal or one lies beneath the
+other, or their canonical endpoints are equal.
 
 ## Paths, aliases, and endpoints
 
@@ -163,7 +167,9 @@ in this order and skipped with the first matching reason:
 4. `occupied`: its canonical location or that of a companion or cover file equals or
    lies beneath the canonical form of an occupied path, or its canonical endpoint is
    covered by an occupied endpoint (except `gateway-ssh`, described above).
-5. `unprovisioned`: it is an `aws-access-key` decoy without a provided credential.
+5. `collision`: it collides with a relocation, a custom decoy, a cover file, or a
+   decoy or companion placed earlier.
+6. `unprovisioned`: it is an `aws-access-key` decoy without a provided credential.
 
 Every other decoy is placed. A skipped decoy's `location` is the candidate that was
 checked: its layout choice, the first candidate when none was eligible, or null for
@@ -181,8 +187,8 @@ appears in `decoys` with exactly `decoy_id`, `kind`, `location` (after relocatio
 null for `helper-exec`), `canonical_location` (null for `helper-exec`),
 `companion_paths` (canonical paths of its companions), `listener`, `scope`, `name`, `fs_type`,
 `fs_path` (null except for kernel interfaces; `fs_path` also null for
-`cgroup-release-agent`), `reachable`, `technique`, `credential_format`, `epoch`, and
-`canary_digest`.
+`cgroup-release-agent`), `reachable`, `technique`, `credential_format`, `epoch` (null
+unless the credential is derived), and `canary_digest`.
 
 ## Requirement: Host decoys stay outside the sandbox boundary
 
@@ -192,17 +198,17 @@ runtime-managed state.
 
 ### Scenario: gVisor on a cloud VM
 
-- **WHEN** `plan` runs with request seed `SEED` for deployment `prod-agents`, runtime `gvisor`, host profile `linux-host`, metadata service `true`, include `["metadata-endpoint"]`, gateway `172.17.0.1`, exposure paths `["/root/.ssh"]`, occupied `["/run/docker.sock"]`, and a provided credential for `cloud-credentials` with digest `P`
+- **WHEN** `plan` runs with request seed `SEED` for deployment `prod-agents`, runtime `gvisor`, host profile `linux-host`, metadata service `true`, gateway `172.17.0.1`, exposure paths `["/root/.ssh"]`, occupied `["/run/docker.sock"]`, and a provided credential for `cloud-credentials` with digest `P`
 - **THEN** `watch.decoys` holds, in order, `cloud-credentials` at `/home/deploy/.aws/credentials` (canary digest `P`), `ssh-private-key` at `/home/deploy/.ssh/id_ed25519` (the only eligible candidate), `runtime-control` at `/run/runsc-debug.sock`, `docker-api`, `gateway-ssh` at `172.17.0.1:22` (reachable), the seven kernel interfaces, and `helper-exec`
 - **AND** the `ssh-private-key` fingerprint is `SHA256:PXe4dd9+L8MO6NhKTT4snE3F6+FFwnoRJAVi5xXAPKc`, and `skipped` lists `container-socket` as `occupied` through the built-in alias and `metadata-endpoint` as `real-service`
 
 ### Scenario: Host-side share and open egress
 
-- **WHEN** `plan` runs with request seed `SEED` for deployment `agents-2`, runtime `capsem`, host profile `linux-host`, metadata service `false`, include `["metadata-endpoint"]`, exposure paths `["/root", "/home"]` (host homes shared into the guest), exposure endpoints `["169.254.0.0/16:*"]`, and occupied `["/var/run"]`
+- **WHEN** `plan` runs with request seed `SEED` for deployment `agents-2`, runtime `capsem`, host profile `linux-host`, metadata service `false`, exposure paths `["/root", "/home"]` (host homes shared into the guest), exposure endpoints `["169.254.0.0/16:*"]`, and occupied `["/var/run"]`
 - **THEN** `cloud-credentials` (location `/root/.aws/credentials`), `ssh-private-key`, and `metadata-endpoint` are skipped as `exposed`, `container-socket` and `runtime-control` (location `/run/capsem-admin.sock`) as `occupied`, and `watch.decoys` holds `docker-api`, the seven kernel interfaces, and `helper-exec`
 
 ### Scenario: Kubernetes node with tailored decoys
 
-- **WHEN** `plan` runs with request seed `SEED` for deployment `k8s-node-1`, runtime `kata`, host profile `kubernetes-node`, metadata service `false`, include `["metadata-endpoint"]`, exclusion `["container-socket"]`, relocation of `runtime-control` to `/opt/kata/admin.sock`, custom decoy `ops-kubeconfig` of kind `credential-file` at `/home/ops/.kube/config` with technique `T1552.001` and format `kubeconfig-token`, and epoch 1 for `ops-kubeconfig`
+- **WHEN** `plan` runs with request seed `SEED` for deployment `k8s-node-1`, runtime `kata`, host profile `kubernetes-node`, metadata service `false`, exclusion `["container-socket"]`, relocation of `runtime-control` to `/opt/kata/admin.sock`, custom decoy `ops-kubeconfig` of kind `credential-file` at `/home/ops/.kube/config` with technique `T1552.001` and format `kubeconfig-token`, and epoch 1 for `ops-kubeconfig`
 - **THEN** `watch.decoys` lists `ssh-private-key` (at `/root/.ssh/id_ed25519`), `metadata-endpoint`, `runtime-control` (at `/opt/kata/admin.sock`), `kubeconfig` (at `/home/deploy/.kube/config`), `docker-api`, the seven kernel interfaces, `helper-exec`, and `ops-kubeconfig` (epoch 1), and `skipped` lists `cloud-credentials` as `unprovisioned` then `container-socket` as `excluded`
 - **AND** the `ssh-private-key` fingerprint is `SHA256:7aoE+l0t+JNkUolH8Nm5Q9BV8ho7xPc9SqVM5nYyJQ0`, the `kubeconfig` token is `dsu5zv.c64q9jgo1id0wgj3`, the `ops-kubeconfig` token is `1helzq.owosf7a9dcehe9jo`, and `watch.retired` holds `ops-kubeconfig` epoch 0 with digest `db4c26aa97ab843ff292fe0828a1b818d86e01f1a9cd7976698db748ec4466c6`

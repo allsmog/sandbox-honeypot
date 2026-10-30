@@ -71,4 +71,15 @@ no host side effects, and `plan` enforces the parts it can check.
   host's decoys to recognize another's.
 - Every interaction an attacker can make with a decoy or its companions is a hit,
   including a metadata read (`stat`), so a decoy cannot be inspected safely before it
-  is touched. Listing the containing directory is not a hit.
+  is touched. Reading the containing directory's entries is not a hit, but a long
+  listing (`ls -l`) stats each entry and is, unless the decoy is in `ignore_stat`.
+
+## Known sources of false positives
+
+Plan around these before relying on alerts: people long-listing directories that hold
+decoys (prefer the dormant account's home, which nobody lists); file-integrity
+monitors, antivirus, and secret scanners that open credential paths (suppress them by
+executable, digest, and user, or keep decoys out of their scope); package upgrades
+that change a suppressed executable's or expected helper's digest (add the new digest
+first); and monitoring agents that probe the Docker socket, Docker API, or metadata
+endpoint (leave those opt-in decoys out).

@@ -43,7 +43,7 @@ The application exposes one `run` entrypoint that takes a single JSON object.
    ```json
    {"operation": "plan", "deployment_id": "prod-agents-host-17", "runtime": "gvisor",
     "host_profile": "linux-host", "metadata_service": true, "include": [],
-    "context": {"organization": "acme", "host_name": "ci-17", "dormant_user": "deploy",
+    "context": {"host_name": "ci-17", "dormant_user": "deploy",
                 "aws_region": "us-east-1", "cluster_name": null, "api_server": null},
     "sandbox_gateway": "172.17.0.1",
     "exposure": {"paths": ["/srv/agents"], "endpoints": ["*:443"]},

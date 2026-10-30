@@ -32,7 +32,8 @@ sequence and filtering happens before signing.
   no `sensor_keys` field. When `authentication` is `required`, exactly one of the two
   MUST be present and give a key for every declared source, otherwise the request is
   invalid at `/sensor_keys`; a request `sensor_keys` adds the warning
-  `keys-in-request`. When `off`, neither is read.
+  `keys-in-request`. When `off`, neither is read. Keys MUST be unique per host and
+  source, so a key stolen on one host cannot speak for another.
 - A key is bound to one source and the signed event names its deployment and
   sequence, so an event cannot claim another source, move between deployments, or be
   replayed without appearing as a sequence duplicate. A sensor-signed event cannot be
@@ -67,7 +68,9 @@ source, in decoy order, and by time then event ID respectively.
 ## Sequences and restarts
 
 For each source and instance, process its accepted events in ascending `sequence`
-order (ties by index), starting from the carried `highest` and `missing` ranges:
+order (ties by index), starting from the carried `highest` and `missing` ranges. An
+instance with nothing carried takes its first sequence as the baseline, with no gap
+before it:
 
 - a sequence above `highest` becomes the new `highest`; if it skips numbers, those
   form a **sequence gap** (`source`, `sensor_instance`, `after`, `before`), revealing
@@ -112,11 +115,12 @@ values are at most `window_seconds` apart. Each accepted non-`credential-use` hi
 whatever its outcome, on a listed decoy from a listed source needs a corroborating hit
 from every other listed source, among this batch's hits and the carried `recent_hits`.
 A hit missing one is **uncorroborated** (`event_id`, `decoy_id`, and ascending
-`missing_sources`), unless it was received within `window_seconds` of `window.end`: it
+`missing_sources`), unless it was received at most `window_seconds` before
+`window.end`: it
 then goes to `pending` and is judged again in the next batch, where it is
 uncorroborated if still unmatched or if that batch has no `corroboration`.
-`recent_hits` carries this batch's hits on listed decoys received within
-`window_seconds` of `window.end`.
+`recent_hits` carries this batch's hits on listed decoys received at most
+`window_seconds` before `window.end`.
 
 ## Ordering
 
@@ -145,7 +149,7 @@ In these scenarios `W` is the `watch` from the gVisor cloud-VM plan in
 ### Scenario: Late external log
 
 - **GIVEN** `W` and source `cloudtrail` signed by the collector with maximum delay 900 seconds
-- **WHEN** a batch for `12:05:00Z` to `12:10:00Z` receives `c1` at `12:09:00Z`, a `credential-use` of `test-access-key-id` observed at `12:04:00Z`
+- **WHEN** a batch for `12:05:00Z` to `12:10:00Z` receives `c1` at `12:09:00Z`, a `credential-use` with target `P` observed at `12:04:00Z`
 - **THEN** `c1/cloud-credentials` is `credential-exfiltrated` and `clock_skew` is empty
 
 ### Scenario: Backdated event
@@ -186,6 +190,6 @@ In these scenarios `W` is the `watch` from the gVisor cloud-VM plan in
 
 ### Scenario: Blinded sensor and batch boundaries
 
-- **GIVEN** `W` and corroboration of `runtime-control` by sources `ebpf` and `lsm` within 5 seconds
+- **GIVEN** `W`, declared sources `ebpf` and `lsm` in both batches, and corroboration of `runtime-control` by those sources within 5 seconds
 - **WHEN** only `ebpf` reports `b1` at `12:00:00Z` and `b2` at `23:59:58Z`, both connecting to `/run/runsc-debug.sock`, and the next batch, for window `2026-10-31T00:00:00Z` to `2026-11-01T00:00:00Z` and given that `carry`, receives an `lsm` hit `b3` on the same socket at `2026-10-31T00:00:01Z`
 - **THEN** the first batch lists only `b1` as uncorroborated and carries `b2` as pending, and the next batch reports nothing uncorroborated, because `b2` and `b3` corroborate each other

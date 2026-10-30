@@ -18,8 +18,12 @@ watched decoys have no material and a null `canary_digest`.
 | Format | Source | Material fields | Identifier | Detection requires |
 | --- | --- | --- | --- | --- |
 | `aws-access-key` | provided | none; the operator holds the key | the access key ID | a real IAM access key whose policy denies everything, in the host's own account (so the key's account matches the host), whose audit trail including denied calls feeds `evaluate`. A key ID that exists in no account is never logged. |
-| `ssh-ed25519` | derived | `private_key_seed`: lowercase hex of `derive("ed25519")`, the RFC 8032 private key; `public_key`: `ssh-ed25519 `, the standard base64 of the SSH public key blob (length-prefixed `ssh-ed25519`, then the length-prefixed 32-byte public key), a space, `{user}@{host_name}` (`root@{host_name}` when `dormant_user` is null); `fingerprint` | `fingerprint`: `SHA256:` and the unpadded standard base64 of SHA-256 over that blob | OpenSSH servers at `LogLevel VERBOSE` on hosts an intruder would try, or an SSH honeypot. |
-| `kubeconfig-token` | derived | `token`: map each of the first 22 bytes of `derive("token")` to `0123456789abcdefghijklmnopqrstuvwxyz` by value modulo 36; the first 6 characters, `.`, and the remaining 16. Also `cluster` (`context.cluster_name`), `server` (`https://` and `context.api_server`), and `user` (`{user}`, or `admin` when null). | `token` | a token authentication webhook or authenticating proxy that reports presented tokens; API server audit logs never contain tokens. |
+| `ssh-ed25519` | derived | `private_key_seed`: lowercase hex of `derive("ed25519")`, the RFC 8032 private key; `public_key`: `ssh-ed25519 `, the standard base64 of the SSH public key blob (length-prefixed `ssh-ed25519`, then the length-prefixed 32-byte public key), a space, `OWNER@{host_name}`; `fingerprint` | `fingerprint`: `SHA256:` and the unpadded standard base64 of SHA-256 over that blob | OpenSSH servers at `LogLevel VERBOSE` on hosts an intruder would try, or an SSH honeypot. |
+| `kubeconfig-token` | derived | `token`: map each of the first 22 bytes of `derive("token")` to `0123456789abcdefghijklmnopqrstuvwxyz` by value modulo 36; the first 6 characters, `.`, and the remaining 16. Also `cluster` (`context.cluster_name`), `server` (`https://` and `context.api_server`), and `user` (`OWNER`). | `token` | a token authentication webhook or authenticating proxy that reports presented tokens; API server audit logs never contain tokens. |
+
+`OWNER` is the account a real file at that location would belong to: `root` beneath
+`/root`, `dormant_user` beneath `/home/{dormant_user}`, and otherwise `dormant_user`,
+or `root` when that is null.
 
 A provided credential enters `plan` only as a digest, through `provided_credentials`
 (objects with exactly `decoy_id`, naming an included `aws-access-key` decoy, and
@@ -50,8 +54,8 @@ request is invalid.
 ## Context
 
 `context` grounds decoys in the host's own naming, because context-free decoys are
-recognizable. It has exactly `organization` and `host_name` (lowercase DNS labels),
-`dormant_user`, `aws_region` (nonempty), `cluster_name`, and `api_server`. `cluster_name` and
+recognizable. It has exactly `host_name` (a lowercase DNS label), `dormant_user`,
+`aws_region` (nonempty), `cluster_name`, and `api_server`. `cluster_name` and
 `api_server` are nonempty strings without whitespace, required when any
 `kubeconfig-token` decoy is included and otherwise null.
 
@@ -72,7 +76,7 @@ watched: contact with one is contact with its decoy, so a companion cannot be
 inspected safely in its place.
 
 A **cover file** is operator-written dressing that makes a decoy the obvious next step,
-such as a runbook or a shell-history line that mentions it: `cover_files` holds objects
+such as a README or runbook that mentions it: `cover_files` holds objects
 with exactly `decoy_id` (an included planted decoy), `path`, and `content`. Cover files
 are not watched, since people may read them. A cover file the sandbox can read would
 point a sandboxed attacker at the host, so it makes its decoy exposed.
@@ -104,5 +108,5 @@ watched, and never place a credential decoy where a real account's tools would u
 ### Scenario: Stolen before rotation
 
 - **GIVEN** the `watch` from the Kubernetes node plan in `decoys/spec.md`
-- **WHEN** a token webhook reports event `r1`, a `credential-use` of `57s1n9.u205saks22kzy6dz` (the epoch-0 token)
+- **WHEN** a token webhook reports event `r1`, a `credential-use` whose target is the digest of `57s1n9.u205saks22kzy6dz` (the epoch-0 token), `db4c26aa97ab843ff292fe0828a1b818d86e01f1a9cd7976698db748ec4466c6`
 - **THEN** `r1/ops-kubeconfig` is `credential-exfiltrated` with techniques `["T1552.001", "T1078"]`

@@ -143,6 +143,9 @@ fit in one argument (128 KiB on Linux): operators split a long period into conse
 `evaluate` batches joined by `carry` (`telemetry/spec.md`). The result is one JSON
 object written to standard output. An operator MUST treat a failed, rejected, or
 skipped evaluation as an alert, since an attacker may try to make evaluation fail.
+Because the request travels on a command line, `plan` and `evaluate` MUST run on a
+dedicated analysis host that no other user or workload shares, or with `/proc` mounted
+`hidepid=2`.
 
 The specification is split by concern: the catalog and `plan` in `decoys/spec.md`;
 credentials, rotation, and cover files in `credentials/spec.md`; the `evaluate` request,
@@ -155,12 +158,24 @@ Every object in a request is strict: unknown fields, missing required fields, an
 values of the wrong type are invalid. Validation runs in two phases and reports the
 first failure. First, each field is checked on its own, in the order this
 specification lists it, depth first, arrays in index order. Then cross-field rules are
-checked in this order, each reported at the field named: a decoy named twice in one
-list (the later entry's `decoy_id`); a reference to an unknown or ineligible decoy
-(that `decoy_id`); missing `context` values a decoy requires (`/context/cluster_name`,
-then `/context/api_server`); an invalid alias set (the first offending entry's `alias`
-or `target`); a collision (the later item's `location` or `path`); and a repeated
-digest (the later digest field). Identifier strings (`deployment_id`, `sandbox_id`, `event_id`, `source`,
+checked in this order, each reported at the field named:
+
+1. The seed or sensor keys are absent, duplicated, too short, or do not cover every
+   declared source (`/seed` or `/sensor_keys`).
+2. `window.end` is not after `window.start` (`/window/end`).
+3. A value that must be unique repeats: a decoy named twice in one list, a source,
+   sandbox ID, process identity, harness ID, or `decoy_inodes` path or device-inode
+   pair (the later occurrence).
+4. A reference names an unknown decoy or one of the wrong kind or state, a
+   corroboration source is undeclared, or `value_digest` is null for a kernel
+   interface or set for another decoy (that field).
+5. `context.cluster_name` or `context.api_server` is null although a
+   `kubeconfig-token` decoy is included, or set although none is (that field).
+6. The alias set is invalid (the later of the two overlapping entries, at its `alias`
+   if that overlaps, otherwise its `target`).
+7. A relocation, custom decoy, or cover file collides with another item (the later
+   item's `location` or `path`).
+8. A digest repeats among current and retired canaries (the later digest field). Identifier strings (`deployment_id`, `sandbox_id`, `event_id`, `source`,
 `sensor_instance`, `harness_id`) MUST be nonempty. Strings are compared and sorted by
 Unicode code point. Integers MUST lie between 0 and 2^53 − 1 unless stated. A
 timestamp is `YYYY-MM-DDTHH:MM:SS`, optionally `.` and 1 to 9 digits, then `Z`, with
@@ -201,15 +216,16 @@ fixed executable digest. Decoy credentials appear only as identifiers derived fr
 
 Unstated values default as follows. Lists are empty. `probe`, `corroboration`,
 `carry`, `sandbox_gateway`, and every event detail field are null, and `ancestry` is
-empty. `sources` declares every source the scenario's events use, signed by the
-sensor (by the collector for `cloudtrail`), with null maximum silence and a maximum
-delay of 300 seconds. `authentication` is `off` and `max_clock_skew_seconds` is 300. `window` is
+empty, except that an event whose `target` is a path has a `target_inode` matching no
+`decoy_inodes` entry, and `include` lists all three opt-in decoys. `sources` declares every
+source the scenario mentions, signed by the sensor (by the collector for
+`cloudtrail`), with null maximum silence and a maximum delay of 300 seconds. `authentication` is `off` and `max_clock_skew_seconds` is 300. `window` is
 `2026-10-30T00:00:00Z` to `2026-10-31T00:00:00Z`; times without a date are on
 2026-10-30; an event's `time` is `12:00:00Z`, `received` equals its `time`,
 `deployment_id` equals the watch's, `source` is `ebpf`, `sensor_instance` is `boot-1`,
 sequences number each source and instance's events 1, 2, … in index order, and
-unnamed events have IDs `u0`, `u1`, … by index. `context` is organization `acme`, host
-name `ci-17`, dormant user `deploy`, AWS region `us-east-1`, and, when a `kubeconfig-token` decoy is included, cluster `prod-east` with
+unnamed events have IDs `u0`, `u1`, … by index. `context` is host name `ci-17`,
+dormant user `deploy`, AWS region `us-east-1`, and, when a `kubeconfig-token` decoy is included, cluster `prod-east` with
 API server `10.0.0.1:6443` (otherwise null).
 
 ### Requirement: Detection is invisible to the attacker
