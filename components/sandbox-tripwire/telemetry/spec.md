@@ -125,7 +125,9 @@ instant order; every consecutive pair more than `max_interval_seconds` apart is 
 **watch gap** (`decoy_id`, `from`, `to`). Probes SHOULD check a file decoy with `stat`,
 which raises no inotify event, and one in `ignore_stat` with `open`. Probes of
 loopback endpoint decoys connect from the initial network namespace, where connect
-hooks and listener-side sources fill `actor` from the probe process. Other endpoint
+hooks and listener-side sources fill `actor` from the probe process; such decoys MUST
+NOT be observed through conntrack or netfilter sources, which cannot tell the probe
+from another local process. Other endpoint
 probes MUST come from a dedicated network namespace only root can enter, through a
 veth whose host end is the only interface allowed to carry the probe source prefix:
 no address in the prefix is assigned in the initial namespace, and the host drops
@@ -133,7 +135,7 @@ packets with a source in that prefix that arrive on any other interface or are
 generated locally. A process outside that namespace therefore cannot send from the
 prefix, so every arrival source, including conntrack and SSH
 server logs, can recognize probe connections by source address and report them with
-the probe's identity (`evaluation/spec.md`); firewall marks and key fingerprints
+the probe's `executable`, `executable_digest`, and `uid` (`evaluation/spec.md`); firewall marks and key fingerprints
 alone never qualify. Watched decoys are not probed, because
 writing a kernel interface changes the host; silence gaps cover their sensors and the
 external logs that record `credential-use`.
@@ -147,9 +149,10 @@ and `sources` (two or more distinct declared sources). Two hits **corroborate** 
 other when they are on the same decoy from different listed sources and their `time`
 values are at most `window_seconds` apart. Each accepted non-`credential-use` hit,
 whatever its outcome, on a listed decoy from a listed source needs a corroborating hit
-from every other listed source, so listed sources MUST observe every action that can
-hit the decoy (a fanotify or audit source, which misses `stat` and `connect`, cannot be
-listed beside one that sees them), among this batch's hits and the carried `recent_hits`.
+from every other listed source, among this batch's hits and the carried `recent_hits`.
+Listed sources MUST therefore observe every action that can hit the decoy: a fanotify
+source or an audit file watch, which misses `stat` and `connect`, cannot be listed
+beside one that sees them.
 Let `H` be `window_seconds` plus the largest `max_delay_seconds` of the decoy's listed
 sources, since a slower source's report arrives later. A hit missing one stays in
 `pending` while it was received at most `H` before `window.end`, and is judged again in

@@ -131,7 +131,8 @@ decoys. It assumes:
   kernel interfaces, the expected written value, and never suppress a shell or
   general-purpose interpreter, which would trust every script it runs, or a setuid,
   setgid, or file-capability executable, which any user could run as its owner; the
-  same applies to the probe.
+  same applies to the probe. Tools whose executable path varies, such as containerized
+  scanners, cannot be suppressed; keep decoys out of their scope instead.
   Likewise expected helpers are matched by file, not arguments: a kernel write
   primitive that points a helper setting at an expected helper with hostile arguments
   (such as `kmod insmod`) is caught only if it writes a kernel interface.
@@ -174,40 +175,40 @@ checked in this order, each reported at the field named:
    (`/seed`); or, when authentication is required, the sensor keys are absent, given
    in both, malformed in the environment, or do not name exactly the declared sources
    (`/sensor_keys`).
-2. `window.end` is not after `window.start` (`/window/end`), or `carry` is not null
+2. `watch` is inconsistent: a repeated decoy ID, an invalid alias set, a
+   `canonical_location` that is not the canonical form of its `location`, or a
+   repeated non-null digest (the later offending field within `watch`, chosen for
+   aliases as in rule 7). Later rules read `watch` only once it passes.
+3. `window.end` is not after `window.start` (`/window/end`), or `carry` is not null
    and its `window_end` differs from `window.start` (`/window/start`).
-3. A value that must be unique repeats: a decoy named twice in `include`, `exclude`,
-   `relocate`, `epochs`, `provided_credentials`, `corroboration.decoys`, or
-   `ignore_stat`, a custom `decoy_id`, a source, sandbox ID, runtime process identity or one also listed as a harness,
-   harness ID, or
-   `decoy_inodes` device-inode pair naming two paths, or a third or repeated entry for
-   one path (the later occurrence). Rules 3 and 8 cover request fields; rule 10 covers
-   `watch`. Other lists, such
-   as `suppressions`, `decoy_inodes`, and `retired_canaries`, may name a decoy more
-   than once.
-4. A reference names an unknown decoy or one of the wrong kind or state, a
+4. A value in the request that must be unique repeats: a decoy named twice in
+   `include`, `exclude`, `relocate`, `epochs`, `provided_credentials`,
+   `corroboration.decoys`, or `ignore_stat`, a custom `decoy_id`, a source, sandbox
+   ID, runtime process identity or one also listed as a harness, harness ID, a
+   device-inode pair that is the current entry of two `decoy_inodes` paths, or a
+   third or repeated entry for one path (the later occurrence). Other lists, such as
+   `suppressions`, `decoy_inodes`, and `retired_canaries`, may name a decoy more than
+   once.
+5. A reference names an unknown decoy or one of the wrong kind or state (including a
+   relocation of `gateway-ssh` and a cover file for a `reachable` decoy), a
    corroboration source is undeclared, `value_digest` is null for a kernel interface
    or set for another decoy, or a retired canary's `technique` is null for a former
    custom decoy or set for a current one (that field).
-5. `context.cluster_name`, `context.api_server`, or `context.cluster_ca_data` is null
+6. `context.cluster_name`, `context.api_server`, or `context.cluster_ca_data` is null
    although a `kubeconfig-token` decoy is included and not excluded, or set although
    none is (that field).
-6. The alias set is invalid (the later of the two overlapping entries, at its `alias`
+7. The alias set is invalid (the later of the two overlapping entries, at its `alias`
    if that overlaps, otherwise its `target`).
-7. The footprints of two relocated or custom decoys collide, or two items of one of
+8. The footprints of two relocated or custom decoys collide, or two items of one of
    their footprints do (at the later of the two request items, taking `relocate`,
    then `custom_decoys`, then `cover_files`, each in index order: its `location` or
    `path`).
-8. A digest repeats among current and retired canaries (the later digest field).
-9. Any other constraint between fields fails, such as a location of the wrong type for
-   its decoy or kind, a `credential_format` that does not fit `kind`, a
-   `decoy_inodes` path other than its decoy's canonical location or companions, an
-   unspecified `sandbox_gateway`, repeated corroboration sources,
-   empty harness signature arrays, or a null suppression `executable` with a nonzero
-   `uid` (the later field in field order).
-10. `watch` is inconsistent: a repeated decoy ID, an invalid alias set, a
-    `canonical_location` that is not the canonical form of its `location`, or a
-    repeated digest (the later field within `watch`).
+9. A digest repeats among current and retired canaries (the later digest field).
+10. Any other constraint between fields fails, such as a location of the wrong type
+    for its decoy or kind, a `credential_format` that does not fit `kind`, a
+    `decoy_inodes` path other than its decoy's canonical location or companions,
+    repeated corroboration sources, or empty harness signature arrays (the later
+    field in field order).
 
 Identifier strings (`deployment_id`, `sandbox_id`, `event_id`, `source`,
 `sensor_instance`, `harness_id`) MUST be nonempty. Strings are compared and sorted by

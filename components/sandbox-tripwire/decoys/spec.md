@@ -150,9 +150,10 @@ Request fields: `operation` (`plan`); `deployment_id`; `runtime` (`gvisor`, `cap
 a real instance metadata service at `169.254.169.254`); `include` (opt-in catalog
 IDs); optional `seed`; `context`;
 `sandbox_gateway` (the host-side address at which sandbox traffic to its gateway
-arrives, never an unspecified address, or null; user-space stacks that forward the
-gateway to host loopback, such as slirp4netns, pasta, or gvproxy, need that
-forwarding disabled, or null, since host tools use loopback SSH); `exposure`; `occupied`; `path_aliases`;
+arrives, never an unspecified address in any spelling, which is invalid at
+`/sandbox_gateway`, or null; it is null for user-space stacks such as slirp4netns,
+pasta, or gvproxy, which deliver gateway traffic to host loopback, where host tools
+use SSH legitimately); `exposure`; `occupied`; `path_aliases`;
 `exclude`; `relocate`; `custom_decoys`; `epochs`; `provided_credentials`;
 `retired_canaries`; and `cover_files`.
 

@@ -120,5 +120,8 @@ explicit platforms or `reset` (register emulators once at boot through `binfmt.d
 instead); on systemd before 258 in the pure cgroup v1 layout, the kernel running
 `systemd-cgroups-agent` as a helper whenever a cgroup empties (list it in
 `expected_helpers`); disk-usage scanners and desktop indexers that stat everything
-under `/home`; and indexers or on-access scanners that watch decoy directories for
-opens.
+under `/home`; indexers or on-access scanners that watch decoy directories for opens;
+and suppressed tools or probes run with a loader or interpreter variable that
+`evaluation/spec.md` lists, as many container images set `LD_LIBRARY_PATH` or
+`PYTHONPATH` (clear them in the tool's unit). The probe prefix's interface and route are
+visible to host users, so name them like ordinary infrastructure.
