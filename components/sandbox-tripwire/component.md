@@ -128,7 +128,8 @@ decoys. It assumes:
 - Suppressed executables and the probe are trusted like the host's own maintenance:
   an attacker who can run them with chosen arguments can read decoys without an
   alert. Keep suppressions few and bound to an executable digest, user, and, for
-  kernel interfaces, the expected written value.
+  kernel interfaces, the expected written value, and never suppress a shell or
+  general-purpose interpreter, which would trust every script it runs.
 
 It never runs code on the attacker's side, even to attribute them: identification is
 passive and uses only what host sensors recorded.
@@ -140,7 +141,9 @@ whose value is `plan` or `evaluate`. The public callable preserves that one-obje
 boundary in every language; in Python it is `main(request)`. The process entrypoint
 receives the complete JSON argument array in one command-line token, so a request MUST
 fit in one argument (128 KiB on Linux): operators split a long period into consecutive
-`evaluate` batches joined by `carry` (`telemetry/spec.md`). The result is one JSON
+`evaluate` batches joined by `carry` (`telemetry/spec.md`). Event limits keep each
+event under 20 KiB (`evaluation/spec.md`), so a request whose other fields stay under
+100 KiB can always carry one. The result is one JSON
 object written to standard output. An operator MUST treat a failed, rejected, or
 skipped evaluation as an alert, since an attacker may try to make evaluation fail.
 Because the request travels on a command line, `plan` and `evaluate` MUST run on a
@@ -160,24 +163,32 @@ first failure. First, each field is checked on its own, in the order this
 specification lists it, depth first, arrays in index order. Then cross-field rules are
 checked in this order, each reported at the field named:
 
-1. The seed or sensor keys are absent, duplicated, too short, or do not cover every
-   declared source (`/seed` or `/sensor_keys`).
+1. The seed, or the sensor keys when authentication is required, are absent,
+   duplicated, too short, or do not cover every declared source (`/seed` or
+   `/sensor_keys`).
 2. `window.end` is not after `window.start` (`/window/end`).
-3. A value that must be unique repeats: a decoy named twice in one list, a source,
-   sandbox ID, process identity, harness ID, or `decoy_inodes` path or device-inode
-   pair (the later occurrence).
+3. A value that must be unique repeats: a decoy named twice in `include`, `exclude`,
+   `relocate`, `epochs`, `provided_credentials`, `corroboration.decoys`, or
+   `ignore_stat`, a source, sandbox ID, process identity, harness ID, or
+   `decoy_inodes` path or device-inode pair (the later occurrence). Other lists, such
+   as `suppressions`, `decoy_inodes`, and `retired_canaries`, may name a decoy more
+   than once.
 4. A reference names an unknown decoy or one of the wrong kind or state, a
    corroboration source is undeclared, or `value_digest` is null for a kernel
    interface or set for another decoy (that field).
 5. `context.cluster_name` or `context.api_server` is null although a
-   `kubeconfig-token` decoy is included, or set although none is (that field).
+   `kubeconfig-token` decoy is included and not excluded, or set although none is
+   (that field).
 6. The alias set is invalid (the later of the two overlapping entries, at its `alias`
    if that overlaps, otherwise its `target`).
 7. A relocation, custom decoy, or cover file collides with another item (the later
    item's `location` or `path`).
-8. A digest repeats among current and retired canaries (the later digest field). Identifier strings (`deployment_id`, `sandbox_id`, `event_id`, `source`,
+8. A digest repeats among current and retired canaries (the later digest field).
+
+Identifier strings (`deployment_id`, `sandbox_id`, `event_id`, `source`,
 `sensor_instance`, `harness_id`) MUST be nonempty. Strings are compared and sorted by
-Unicode code point. Integers MUST lie between 0 and 2^53 − 1 unless stated. A
+Unicode code point. Integers are JSON numbers without a fraction or exponent and MUST
+lie between 0 and 2^53 − 1 unless stated. A
 timestamp is `YYYY-MM-DDTHH:MM:SS`, optionally `.` and 1 to 9 digits, then `Z`, with
 seconds from 00 to 59; timestamps are compared by the instant they denote.
 
@@ -190,8 +201,8 @@ secret except as a test convenience:
   reads it from `SANDBOX_HONEYPOT_SEED` when the request has no `seed` field. Exactly
   one of the two MUST be present, and the seed MUST be at least 32 bytes of UTF-8 so one
   exposed decoy cannot be used to brute-force it; anything else is invalid at `/seed`.
-  Operators SHOULD use at least 32 random bytes. A request `seed` adds the warning
-  `seed-in-request`.
+  Operators SHOULD use at least 32 random bytes. The public test seed `SEED` is
+  accepted only in the request. A request `seed` adds the warning `seed-in-request`.
 - The `plan` result separates `material` (derived credential secrets, used only to
   materialize decoys) from `watch` (no credential secrets, but confidential because it
   names the decoys). `evaluate` takes only `watch`, which identifies credentials by

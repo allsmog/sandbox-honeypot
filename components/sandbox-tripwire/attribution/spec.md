@@ -95,8 +95,8 @@ In these scenarios `W` is the `watch` from the gVisor cloud-VM plan in
 
 ### Scenario: Escape through kernel helpers
 
-- **GIVEN** `W`, `sbx-1`, and expected helper `/sbin/modprobe` with digest `R`
-- **WHEN** `k0`: a host process reads `/proc/sys/kernel/core_pattern`; `k1` at `12:00:00Z`: process `{6100, 950}` with ancestry `[{4100, 500}]` writes `/tmp/cgrp/release_agent` with target filesystem `{"type": "cgroup", "path": "release_agent"}`; `k2` at `12:00:05Z`: process `{7000, 1200}` with helper depth 0 execs `/tmp/p`; `k3` at `12:00:06Z`: its child `{7001, 1210}` with helper depth 1 reads `/home/deploy/.aws/credentials`; `k4`: a process with helper depth 0 execs `/sbin/modprobe` with target digest `R`
+- **GIVEN** `W`, `sbx-1`, and expected helper `/usr/bin/kmod` with digest `R`
+- **WHEN** `k0`: a host process reads `/proc/sys/kernel/core_pattern`; `k1` at `12:00:00Z`: process `{6100, 950}` with ancestry `[{4100, 500}]` writes `/tmp/cgrp/release_agent` with target filesystem `{"type": "cgroup", "path": "release_agent"}`; `k2` at `12:00:05Z`: process `{7000, 1200}` with helper depth 0 execs `/tmp/p`; `k3` at `12:00:06Z`: its child `{7001, 1210}` with helper depth 1 reads `/home/deploy/.aws/credentials`; `k4`: a process with helper depth 0 execs `/usr/bin/kmod` with target digest `R`
 - **THEN** `k0` and `k4` are ignored; `k1/cgroup-release-agent` is `escape-confirmed` with attribution `ancestry` and sandbox `sbx-1`, although the write bypassed `/sys/fs/cgroup`; and `k2/helper-exec` and `k3/cloud-credentials` are `escape-confirmed` with attribution `kernel-helper` and a null sandbox
 
 ### Scenario: Sandbox reaching for host SSH

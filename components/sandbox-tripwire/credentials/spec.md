@@ -22,8 +22,8 @@ watched decoys have no material and a null `canary_digest`.
 | `kubeconfig-token` | derived | `token`: map each of the first 22 bytes of `derive("token")` to `0123456789abcdefghijklmnopqrstuvwxyz` by value modulo 36; the first 6 characters, `.`, and the remaining 16. Also `cluster` (`context.cluster_name`), `server` (`https://` and `context.api_server`), and `user` (`OWNER`). | `token` | a token authentication webhook or authenticating proxy that reports presented tokens; API server audit logs never contain tokens. |
 
 `OWNER` is the account a real file at that location would belong to: `root` beneath
-`/root`, `dormant_user` beneath `/home/{dormant_user}`, and otherwise `dormant_user`,
-or `root` when that is null.
+`/root`, `NAME` beneath `/home/NAME`, and otherwise `dormant_user`, or `root` when
+that is null.
 
 A provided credential enters `plan` only as a digest, through `provided_credentials`
 (objects with exactly `decoy_id`, naming an included `aws-access-key` decoy, and

@@ -27,9 +27,14 @@ no host side effects, and `plan` enforces the parts it can check.
   the way a real service that rejects the caller would, never with a banner, error,
   or delay unique to the decoy. Its listener runs under a process name and account
   that fit the service it imitates. Socket names SHOULD be site-specific (`relocate`),
-  because the catalog's names are public. On a host without a metadata service, the
-  metadata decoy is reached through routing or address translation, never an
-  interface address any user could list.
+  because the catalog's names are public (`plan` warns `public-socket-name`). An
+  endpoint listener binds only its decoy address, so no other host address reaches it
+  unwatched. On a host without a metadata service, the metadata decoy is reached
+  through routing or address translation, never an interface address any user could
+  list, and its backend runs in a network namespace no host process can reach directly.
+- The dormant account looks used: a login shell, ordinary home contents, and login
+  records consistent with occasional use, because an account that never logged in yet
+  holds credentials is a tell.
 - A used decoy credential gets exactly the response a real credential without
   permissions gets: `AccessDenied` for the deny-all AWS key,
   `Permission denied (publickey)` for SSH, and `401` or `403` from Kubernetes.
@@ -42,9 +47,9 @@ no host side effects, and `plan` enforces the parts it can check.
 
 ## Observation is passive
 
-- Sensors observe without interposing: notification-only mechanisms (fanotify
-  notification marks, audit rules, eBPF tracepoints), never permission events,
-  blocking hooks, or access denials on decoys. A contact completes with the same
+- Sensors observe without interposing: their hooks always allow the operation
+  (BPF-LSM programs that return 0, kernel-function or exit probes), never fanotify
+  permission events, blocking decisions, or access denials on decoys. A contact completes with the same
   result and no added latency an attacker could measure.
 - Detection takes no inline action on the protected host: at the time of contact
   there is no process kill, network cut, login message, broadcast, file change, or
@@ -76,10 +81,15 @@ no host side effects, and `plan` enforces the parts it can check.
 
 ## Known sources of false positives
 
-Plan around these before relying on alerts: people long-listing directories that hold
-decoys (prefer the dormant account's home, which nobody lists); file-integrity
-monitors, antivirus, and secret scanners that open credential paths (suppress them by
-executable, digest, and user, or keep decoys out of their scope); package upgrades
-that change a suppressed executable's or expected helper's digest (add the new digest
-first); and monitoring agents that probe the Docker socket, Docker API, or metadata
-endpoint (leave those opt-in decoys out).
+Plan around these before relying on alerts: people listing directories that hold
+decoys, since `ls -l`, colored `ls` (the default alias on many distributions), and
+shell completion stat entries (prefer the dormant account's home, which nobody lists);
+file-integrity monitors, antivirus, and secret scanners that open credential paths
+(suppress them by executable, digest, and user, running interpreted scanners as
+directly executed scripts, or keep decoys out of their scope); the sensors' own file
+access (exclude their processes in the sensor); package upgrades that change a
+suppressed executable's or expected helper's digest (add the new digest first);
+monitoring agents that probe the Docker socket, Docker API, or metadata endpoint
+(leave those opt-in decoys out); containers outside any sandbox that share the
+sandbox network's bridge and reach `gateway-ssh`; and rootless container tooling that
+registers `binfmt_misc` formats in its own user namespace on recent kernels.

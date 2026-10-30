@@ -24,7 +24,8 @@ sequence and filtering happens before signing.
 
 - `authentication` is `required` or `off`. When `required`, `mac` MUST be the
   lowercase hexadecimal HMAC-SHA256 over the RFC 8785 (JCS) canonical JSON of the event
-  without `mac` and `received`, keyed with the 32 bytes decoded from its source's
+  as received, unknown fields included and before any repair, without `mac` and
+  `received`, keyed with the 32 bytes decoded from its source's
   hexadecimal key; an event whose `mac` is missing or wrong is rejected at `/mac`. When
   `off`, `mac` is ignored and the result warns `unauthenticated`.
 - Sensor keys are a JSON object mapping each declared source to 64 lowercase
@@ -32,7 +33,8 @@ sequence and filtering happens before signing.
   no `sensor_keys` field. When `authentication` is `required`, exactly one of the two
   MUST be present and give a key for every declared source, otherwise the request is
   invalid at `/sensor_keys`; a request `sensor_keys` adds the warning
-  `keys-in-request`. When `off`, neither is read. Keys MUST be unique per host and
+  `keys-in-request`. When `off`, neither is read and a request `sensor_keys` is
+  ignored without a warning. Keys MUST be unique per host and
   source, so a key stolen on one host cannot speak for another.
 - A key is bound to one source and the signed event names its deployment and
   sequence, so an event cannot claim another source, move between deployments, or be
@@ -60,7 +62,7 @@ exactly:
 - `last_seen`: objects with exactly `source` and `received`;
 - `last_probe`: objects with exactly `decoy_id` and `received`;
 - `recent_hits` and `pending`: objects with exactly `event_id`, `decoy_id`, `source`,
-  and `time`, plus `missing_sources` for `pending` (Corroboration).
+  `time`, and `received`, plus `missing_sources` for `pending` (Corroboration).
 
 The result's `carry` holds the updated values, sorted by source and instance, by
 source, in decoy order, and by time then event ID respectively.
@@ -68,9 +70,9 @@ source, in decoy order, and by time then event ID respectively.
 ## Sequences and restarts
 
 For each source and instance, process its accepted events in ascending `sequence`
-order (ties by index), starting from the carried `highest` and `missing` ranges. An
-instance with nothing carried takes its first sequence as the baseline, with no gap
-before it:
+order (ties by index), starting from the carried `highest` and `missing` ranges.
+Every instance numbers its events from 1, so an instance with nothing carried starts
+from `highest` 0, and records dropped right after a restart form a gap after 0:
 
 - a sequence above `highest` becomes the new `highest`; if it skips numbers, those
   form a **sequence gap** (`source`, `sensor_instance`, `after`, `before`), revealing
@@ -114,15 +116,23 @@ other when they are on the same decoy from different listed sources and their `t
 values are at most `window_seconds` apart. Each accepted non-`credential-use` hit,
 whatever its outcome, on a listed decoy from a listed source needs a corroborating hit
 from every other listed source, among this batch's hits and the carried `recent_hits`.
-A hit missing one is **uncorroborated** (`event_id`, `decoy_id`, and ascending
-`missing_sources`), unless it was received at most `window_seconds` before
-`window.end`: it
-then goes to `pending` and is judged again in the next batch, where it is
-uncorroborated if still unmatched or if that batch has no `corroboration`.
-`recent_hits` carries this batch's hits on listed decoys received at most
-`window_seconds` before `window.end`.
+Let `H` be `window_seconds` plus the largest `max_delay_seconds` of the decoy's listed
+sources, since a slower source's report arrives later. A hit missing one stays in
+`pending` while it was received at most `H` before `window.end`, and is judged again in
+each later batch; otherwise it is **uncorroborated** (`event_id`, `decoy_id`, and
+ascending `missing_sources`), as is a pending hit in a batch whose `corroboration` is
+null or no longer lists its decoy. `recent_hits` carries the hits on listed decoys
+received at most `H` before `window.end`.
 
-## Ordering
+## Tamper lists and ordering
+
+The result's tamper lists are `sequence_gaps` (objects with exactly `source`,
+`sensor_instance`, `after`, and `before`), `late_fills` (event IDs),
+`sequence_duplicates` (objects with exactly `source`, `sensor_instance`, and
+`sequence`), `sensor_restarts` (objects with exactly `source` and `sensor_instance`),
+`silence_gaps` (objects with exactly `source`, `from`, and `to`), `watch_gaps` (objects
+with exactly `decoy_id`, `from`, and `to`), `uncorroborated` (objects with exactly
+`event_id`, `decoy_id`, and `missing_sources`), and `clock_skew` (event IDs).
 
 Sequence gaps are ordered by source, instance, then `after`; late fills and
 `clock_skew` event IDs in event order; sequence duplicates by source, instance, then

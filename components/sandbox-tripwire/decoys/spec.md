@@ -115,7 +115,7 @@ other, or their canonical endpoints are equal.
 
 A path is absolute POSIX: it starts with `/`, contains no empty, `.`, or `..`
 segment, and has no trailing `/` unless it is exactly `/`. "Beneath" always means on a
-segment boundary. The effective alias list is the built-in alias `/var/run` → `/run`
+segment boundary, and every other path lies beneath `/`. The effective alias list is the built-in alias `/var/run` → `/run`
 followed by the request's `path_aliases` (objects with exactly `alias` and `target`).
 It is valid only when every `alias` is distinct, no `target` equals or lies beneath any
 `alias`, and no `alias` equals or lies beneath any `target`, so one rewrite always
@@ -175,8 +175,9 @@ Every other decoy is placed. A skipped decoy's `location` is the candidate that 
 checked: its layout choice, the first candidate when none was eligible, or null for
 `helper-exec`. The request is invalid when a relocation, custom decoy, or cover file
 collides with a placed decoy, companion, or another of these (see `component.md` for
-the reported field). The result has exactly `operation`, `warnings` (`seed-in-request` when
-applicable, otherwise empty), `watch`, `material`, `companions`, and `skipped`
+the reported field). The result has exactly `operation`, `warnings` (in this order when
+applicable: `seed-in-request`, and `public-socket-name` when `runtime-control` is
+placed at a catalog candidate), `watch`, `material`, `companions`, and `skipped`
 (objects with exactly `decoy_id`, `location`, and `reason`, in decoy order);
 `material` and `companions` are defined in `credentials/spec.md`.
 
