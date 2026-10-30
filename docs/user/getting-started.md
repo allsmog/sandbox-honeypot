@@ -36,18 +36,20 @@ The application exposes one `run` entrypoint that takes a single JSON object.
    **host-side** paths any sandbox can reach (mount and share sources, not guest
    paths) and the addresses its egress allows (`*:*` for unrestricted). `occupied`
    lists real host assets, including runtime state directories. `context` supplies
-   your own naming so decoys look like they belong, and `sandbox_gateway` plants an SSH
+   your own naming so decoys look like they belong; its `dormant_user` must be an
+   account nothing runs as, so decoys in its home never hijack real tooling; and `sandbox_gateway` plants an SSH
    decoy where escaping agents look for host SSH:
 
    ```json
    {"operation": "plan", "deployment_id": "prod-agents-host-17", "runtime": "gvisor",
-    "host_profile": "linux-host", "host_environment": "cloud-vm",
-    "context": {"organization": "acme", "service_user": "deploy",
+    "host_profile": "linux-host", "metadata_service": true,
+    "context": {"organization": "acme", "dormant_user": "deploy",
                 "aws_region": "us-east-1", "cluster_name": null, "api_server": null},
     "sandbox_gateway": "172.17.0.1",
     "exposure": {"paths": ["/srv/agents"], "endpoints": ["*:443"]},
     "occupied": ["/run/docker.sock", "/var/run/runsc"], "path_aliases": [],
     "exclude": [], "relocate": [], "custom_decoys": [], "epochs": [],
+    "retired_canaries": [], "cover_files": [],
     "provided_credentials": [{"decoy_id": "cloud-credentials",
                               "identifier_digest": "<sha256 of key ID>"}]}
    ```
@@ -80,7 +82,9 @@ The application exposes one `run` entrypoint that takes a single JSON object.
    harness process identities (PID and start ticks), signatures of the harnesses you
    run, maintenance suppressions (by executable and uid),
    the prober, which decoys two sensors must confirm, an observation window, decoy
-   inodes, and sensor events as `{"operation": "evaluate", ...}`. The result reports
+   inodes, and sensor events as `{"operation": "evaluate", ...}`, in batches that
+   each fit in one command-line argument, passing each result's `carry` to the next.
+   Treat any failed evaluation as an alert. The result reports
    `breached` with critical alerts that separate escaped processes, harness escapes,
    kernel-launched payloads, runtime-mediated contact, and escape attempts, and `degraded` when events
    were malformed, forged, duplicated, delayed, or dropped, a decoy's monitoring broke, or one sensor

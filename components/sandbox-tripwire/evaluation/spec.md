@@ -1,141 +1,137 @@
 ---
 name: Event evaluation
-summary: Matching host sensor events to decoys and the evaluate operation
+summary: The evaluate request, event shape, hits, and result
 kind: contract
 ---
 # Event evaluation
 
-This document defines the `evaluate` operation of the Sandbox Escape Tripwire: how
-host sensor events hit decoys and how alerts are attributed, identified, and grouped.
-Decoys and canonical locations are defined in `decoys/spec.md`; event authentication
-and tamper evidence in `telemetry/spec.md`; scenario conventions in `component.md`.
+This document defines the `evaluate` request, the shape of host sensor events, which
+events hit which decoys, and the result. Attribution, verdicts, and harness
+identification are in `attribution/spec.md`; authentication, batching, and tamper
+evidence in `telemetry/spec.md`; scenario conventions in `component.md`.
 
-## Operation `evaluate`
+## Request
 
-A **process identity** is an object with exactly `pid` (positive integer) and
-`start_ticks` (nonnegative integer: the start time in clock ticks since boot, field 22
-of `/proc/PID/stat`). Identities are equal only when both fields are, so a reused PID
-never matches.
-
-Request fields:
+A **process identity** is an object with exactly `pid` (positive integer: the PID in
+the initial PID namespace) and `start_ticks` (nonnegative integer: the start time in
+`USER_HZ` clock ticks since boot, as in field 22 of `/proc/PID/stat`). Identities are
+equal only when both fields are, so a reused PID never matches.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `operation` | string | `evaluate`. |
 | `watch` | object | A `watch` object from a `plan` result. |
-| `sandboxes` | array | Objects with exactly `sandbox_id`, `runtime_processes` (nonempty identities of that sandbox's runtime on the host, such as the gVisor sandbox and gofer or the VMM), and `harness_processes` (identities of the agent harness on the host that drives the sandbox, possibly empty). Sandbox IDs and identities are unique. |
-| `suppressions` | array | Trusted maintenance: objects with exactly `decoy_id` (in `watch`), `executable` (path), and `uid` (integer). |
-| `probe`, `corroboration` | object or null | Self-test and cross-sensor checks (`telemetry/spec.md`). |
-| `authentication`, `sensor_keys`, `max_clock_skew_seconds` | | Event authentication (`telemetry/spec.md`); `sensor_keys` is optional. |
-| `harness_signatures` | array | Objects with exactly `harness_id` (identifier), `environment_names`, and `executables` (arrays of strings, together nonempty). |
-| `window` | object | Exactly `start` and `end` timestamps, `end` not before `start`. |
-| `decoy_inodes` | array | Objects with exactly `decoy_id` (a planted path decoy in `watch`), `device`, and `inode`, recorded at materialization; decoys and pairs are unique. |
+| `sandboxes` | array | Objects with exactly `sandbox_id`, `runtime_processes` (nonempty identities of that sandbox's runtime on the host, such as the gVisor sandbox and gofer or the VMM), and `harness_processes` (identities of the agent harness that drives it, possibly empty). Sandbox IDs and identities are unique. |
+| `suppressions` | array | Trusted maintenance: objects with exactly `decoy_id` (in `watch.decoys`), `executable` (path), `executable_digest` (64 lowercase hex: SHA-256 of the executable file), `uid` (integer), and `value_digest` (64 lowercase hex for a kernel interface, null otherwise). |
+| `expected_helpers` | array of strings | Paths of executables the kernel legitimately launches as user-mode helpers, such as `/sbin/modprobe`. |
+| `harness_signatures` | array | See `attribution/spec.md`. |
+| `probe`, `corroboration`, `expected_sources`, `authentication`, `sensor_keys`, `max_clock_skew_seconds`, `carry` | | See `telemetry/spec.md`; `sensor_keys` is optional. |
+| `window` | object | Exactly `start` and `end` timestamps, `end` not before `start`; both bounds are inclusive. |
+| `decoy_inodes` | array | Objects with exactly `decoy_id` (a placed planted path decoy), `device` (the `st_dev` value `stat(2)` returns), and `inode` (`st_ino`), recorded at materialization; decoys and pairs are unique. |
 | `events` | array | Host sensor observations. |
 
 Everything except the elements of `events` is validated strictly and fails the
-request. Each event is validated on its own; an invalid event is **rejected** and
-recorded while the others are still evaluated, so one malformed record cannot hide a
-real hit.
+request.
 
-An event has exactly `event_id`, `time`, `received` (collector-stamped timestamp),
-`source`, `sequence` (nonnegative per-source counter, or null), `action`, `target`
-(string), `target_inode` (object with exactly `device` and `inode`, or null), `actor`,
-and `mac` (string or null). `action` is one of `stat`, `open`, `read`, `write`, `exec`,
-`delete`, `connect`, or `credential-use`. `actor` has exactly `process` (identity or
-null), `ancestry` (identities, parent first, possibly empty), `executable` (path or
-null), `uid` (integer or null), `comm` (string or null), `environment_names` (array of
-strings or null), and `sandbox_id` (string or null).
+## Events
 
-`environment_names` carries the **names** of the process's environment variables,
-never their values: sensors MUST NOT collect values. Events sharing an `event_id` are
-all evaluated; the ID is listed in `duplicate_event_ids`, and each of their alert IDs
-gains `#` and the event's index. `actor.comm` is self-reported, so it never influences
-a decision. Sensors SHOULD record `ancestry` from the exec lineage, because a double
-fork would otherwise erase a process's link to the runtime or harness.
+An event has exactly these fields. The first nine are **core**; the rest are
+**detail**.
 
-### Hits
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `event_id` | string | Sensor-assigned identifier. |
+| `deployment_id` | string | MUST equal `watch.deployment_id`. |
+| `time` | timestamp | When the sensor observed the action; MUST lie in the window. |
+| `received` | timestamp | Stamped on arrival by the collector, never by the sensor. |
+| `source` | string | The sensor. |
+| `sensor_instance` | string | Identifies one run of the sensor, such as a boot ID plus start time. |
+| `action` | string | One of the actions below. |
+| `target` | string | What was acted on (see Hits). |
+| `mac` | string or null | See `telemetry/spec.md`. |
+| `sequence` | integer or null | The sensor's per-instance counter. |
+| `target_inode` | object or null | Exactly `device` and `inode`, encoded as in `decoy_inodes`. |
+| `target_fs` | object or null | Exactly `type` (filesystem type, such as `proc` or `cgroup`) and `path` (path within that filesystem, without a leading `/`). |
+| `written_digest` | string or null | SHA-256 (64 lowercase hex) of the bytes written, for writes. |
+| `actor` | object | Exactly `process` (identity or null), `ancestry` (identities, parent first, from the exec lineage, possibly empty), `executable` (path or null), `executable_digest` (64 lowercase hex or null), `uid` (integer or null), `comm` (string or null), `environment_names` (array of at most 256 strings or null), and `sandbox_id` (string or null). |
 
-An accepted event **hits** a decoy in `watch` when:
+Actions are `stat`, `open` (read-only), `open-write`, `read`, `write`, `truncate`,
+`exec`, `delete`, `rename`, `link`, `attr` (a change of mode, owner, extended
+attribute, or timestamps), `connect`, `credential-use`, and `heartbeat` (a sensor
+liveness record, which never hits).
 
-- `action` is `credential-use` and the SHA-256 digest of `target` equals the decoy's
-  `canary_digest`;
-- the decoy is a `kernel-interface`, `action` is `write`, and `target` is a path whose
-  canonical form equals its `canonical_location` (scope `exact`) or lies beneath it
-  with final segment `name` (scope `name-beneath`);
-- the decoy is a planted path decoy, `action` is any other action except
-  `credential-use`, and either `target` is a path whose canonical form equals its
-  `canonical_location`, or `target_inode` equals its `decoy_inodes` entry (catching
-  hard links); or
-- the decoy is an endpoint, `action` is not `credential-use`, and `target` is an
-  address endpoint whose canonical form equals its `canonical_location`.
+Sensors MUST report a path `target` as the kernel-resolved absolute path of the object
+in the initial mount namespace (as `d_path` gives), never the path argument the process
+supplied, and MUST encode text as UTF-8, replacing each invalid byte with U+FFFD.
+`environment_names` holds variable **names** only: sensors MUST NOT collect values.
 
-An event hits at most one decoy; one that hits nothing is **ignored**. A non-
-`credential-use` hit is a **probe hit** when `probe` is not null and the event's
-`actor.executable` and `actor.uid` equal the probe's; otherwise it is **suppressed** when both are non-null
-and a suppression names exactly that `decoy_id`, `executable`, and `uid`. A
-`credential-use` hit is never either. Every other hit is an alert.
+An event with an invalid core field is **rejected** and recorded at the first invalid
+field. An event with a valid core but an invalid detail field is evaluated with that
+field treated as null (`actor` fields individually; `ancestry` as empty) and recorded
+in `repaired`, so a crafted file name or environment cannot turn an attacker's own hit
+into a rejection. Events sharing an `event_id` are all evaluated; the ID is listed in
+`duplicate_event_ids`, and each of their alert IDs gains `#` and the event's index.
 
-### Attribution and verdict
+## Hits
 
-Each alert is attributed by the first rule that applies:
+For matching, the canonical form of an endpoint target also rewrites `0.0.0.0` to
+`127.0.0.1` and `[::]` to `[::1]`, the loopback addresses Linux connects them to. An
+accepted event **hits** a decoy when:
 
-1. `runtime`: `actor.process` equals a sandbox's runtime process. The runtime itself
-   touched the decoy: a runtime file-access or overwrite flaw (2026 advisories include
-   a Firecracker jailer host-file overwrite and a Cloud Hypervisor disk backing-file
-   host leak), a compromised runtime, or a mis-declared exposure.
-2. `harness`: `actor.process` equals a sandbox's harness process.
-3. Lineage: the first identity in `actor.ancestry` that equals a runtime or harness
-   process names its sandbox, with attribution `ancestry` for a runtime process (a new
-   process descended from the runtime, the classic escape) and `harness` for a harness
-   process (code the harness ran outside the sandbox). The nearest ancestor wins, so a
-   process inside the runtime is never blamed on the harness that launched it.
-4. `kernel-helper`: the first identity in `actor.ancestry` has PID 2, so the kernel
-   launched the process as a user-mode helper. Hijacked helpers (`release_agent`,
-   `core_pattern`, `modprobe`) are how many escapes run code as host root. The sandbox
-   is unknown.
-5. `sensor`: `actor.sandbox_id` names a sandbox in `sandboxes`.
-6. Otherwise `sandbox_id` and `attribution` are null.
+- `action` is `credential-use` and the SHA-256 of `target` equals a decoy's
+  `canary_digest` or a `watch.retired` digest (the alert then uses the retired entry's
+  `decoy_id` and `technique`);
+- the decoy is a `kernel-interface`, `action` is `open-write`, `write`, or `truncate`,
+  and either `target` is a path whose canonical form equals its `canonical_location`
+  (scope `exact`) or lies beneath it with final segment `name` (scope `name-beneath`),
+  or `target_fs.type` equals its `fs_type` and `target_fs.path` equals its `fs_path`
+  (or, for scope `name-beneath`, has final segment `name`);
+- the decoy is `helper-exec`, `action` is `exec`, some identity in `actor.ancestry`
+  has PID 2 (so the kernel launched the lineage as a user-mode helper), and
+  `actor.executable` is not in `expected_helpers`;
+- the decoy is a planted path decoy, `action` is any action except `credential-use`
+  and `heartbeat`, and either `target` is a path whose canonical form equals its
+  `canonical_location` or one of its `companion_paths`, or `target_inode` equals its
+  `decoy_inodes` entry (catching hard links); or
+- the decoy is an endpoint, `action` is any action except `credential-use` and
+  `heartbeat`, and `target` is an address endpoint whose canonical form equals its
+  `canonical_location`.
 
-A **harness escape** needs no exploit: an artifact can persuade the agent harness to
-re-run it without the sandbox, for example by reporting a fabricated sandbox
-violation. Paths the harness legitimately reads on the host count as exposure when
-planning.
+When several decoys match, the first in `watch.decoys` order wins, then retired
+entries in order, with a path match preferred over an inode match. An accepted
+non-`heartbeat` event that hits nothing is **ignored**. A rejected event whose `target`,
+with repeated `/` collapsed and `.` and `..` segments resolved, equals a planted
+decoy's canonical location or companion path is also listed in `rejected_hits`, since
+a malformed event on a decoy needs investigation.
 
-Every alert has `severity` `critical`. The verdict is the first that applies:
-`credential-exfiltrated` for `credential-use`; `harness-escape` for attribution
-`harness`; `escape-attempt` for a `reachable` decoy with attribution `runtime` or
-`sensor`; `runtime-mediated` for attribution `runtime`; `escape-confirmed` for
-attribution `ancestry`, `kernel-helper`, or `sensor`; otherwise `host-breach`.
-`techniques` is the decoy technique then `T1078` for `credential-exfiltrated`, and
-otherwise `T1611` then the decoy technique, listing `T1611` once when they coincide.
+A hit is a **probe hit** when `probe` is not null, the decoy is planted, the action is
+`stat`, `open`, `read`, or `connect`, and the actor's `executable`,
+`executable_digest`, and `uid` equal the probe's. Otherwise it is **suppressed** when a
+suppression names its `decoy_id` and the actor's non-null `executable`,
+`executable_digest`, and `uid`, and, for a kernel interface, the event's
+`written_digest` equals the suppression's `value_digest`; a maintenance tool writing an
+unexpected value still alerts. `credential-use` and `helper-exec` hits are never probe
+hits or suppressed. Every other hit is an alert.
 
-### Harness identification
+## Result
 
-Knowing which agent harness drove an escape matters for response. Identification is
-passive: it reads only what host sensors recorded, and never runs code on the actor's
-side. When `harness_signatures` is empty, each alert's `harness` is null. Otherwise a
-signature's **matches** are `env:` plus each of its `environment_names` found in
-`actor.environment_names`, and `exe:` plus each of its `executables` equal to the final
-segment of `actor.executable`. If exactly one signature has the most matches and that
-number is positive, `harness` is `{"harness_id": ID, "matched": MATCHES, "abstained":
-false}` with matches sorted; otherwise it is `{"harness_id": null, "matched": [],
-"abstained": true}`. Identification is context for responders and never changes a
-verdict.
+The result has exactly these fields:
 
-### Result
-
-The result has exactly `operation`, `deployment_id` (from `watch`), `warnings`,
-`breached` (alerts nonempty), `degraded` (any of `rejected`, `duplicate_event_ids`,
-`watch_gaps`, `sequence_gaps`, `uncorroborated`, or `clock_skew` nonempty), `alerts`
-(ordered by `time` instant, then `event_id`, then index), `incidents`, `suppressed`
-(objects with exactly `event_id`, `decoy_id`, `executable`, and `uid`, in event order),
-`rejected` (objects with exactly `index` and `field`, an RFC 6901 pointer within the
-event, in index order), `duplicate_event_ids` (in order of first occurrence),
-`watch_gaps` (objects with exactly `decoy_id`, `from`, and `to`, in decoy order then
-`from`), `sequence_gaps` (objects with exactly `source`, `after`, and `before`, by
-source then `after`), `uncorroborated` (objects with exactly `event_id`, `decoy_id`,
-and ascending `missing_sources`, in event order), `clock_skew` (event IDs in event
-order), `probe_hits`, and `ignored` (counts).
+| Field | Meaning |
+| --- | --- |
+| `operation`, `deployment_id` | `evaluate`, and `watch.deployment_id`. |
+| `warnings` | In this order, each when applicable: `keys-in-request`, `unauthenticated`. |
+| `breached` | True when `alerts` is nonempty. |
+| `degraded` | True when any of `rejected`, `repaired`, `rejected_hits`, `duplicate_event_ids`, or the tamper lists in `telemetry/spec.md` is nonempty. |
+| `alerts` | Ordered by `time` instant, then `event_id` (by Unicode code point), then index. |
+| `incidents` | Alerts grouped by sandbox. |
+| `suppressed` | Objects with exactly `event_id` and `decoy_id`, in event order. |
+| `rejected`, `repaired` | Objects with exactly `index` and `field` (an RFC 6901 pointer within the event), in index then field order. |
+| `rejected_hits` | Indexes in ascending order. |
+| `duplicate_event_ids` | In order of first occurrence. |
+| tamper lists | `watch_gaps`, `sequence_gaps`, `sequence_duplicates`, `sensor_restarts`, `silence_gaps`, `uncorroborated`, and `clock_skew` (`telemetry/spec.md`). |
+| `carry` | State for the next batch (`telemetry/spec.md`). |
+| `probe_hits`, `ignored` | Counts. |
 
 Each alert has exactly `alert_id` (`event_id`, `/`, `decoy_id`, plus any duplicate
 suffix), `event_id`, `decoy_id`, `kind`, `location`, `observed_target`, `severity`,
@@ -143,54 +139,5 @@ suffix), `event_id`, `decoy_id`, `kind`, `location`, `observed_target`, `severit
 `comm`, `time`, and `source`. Incidents group alerts by `sandbox_id`, unattributed
 alerts forming one incident with null `sandbox_id`; each has exactly `sandbox_id`,
 `first_seen`, `last_seen`, and `alert_ids` in alert order, ordered by `first_seen`
-instant, then `sandbox_id`, with the unattributed incident last among equals.
-
-## Requirement: Decoy contact is a critical breakout
-
-The tripwire SHALL turn every decoy contact that is not trusted maintenance or
-self-testing into a critical alert; distinguish escaped processes, harness escapes,
-kernel-launched helpers, runtime-mediated contact, and escape attempts; and SHALL NOT
-let a self-reported name or a reused PID change any of them.
-
-In these scenarios `W` is the `watch` from the gVisor cloud-VM plan in
-`decoys/spec.md`; `sbx-1` has runtime process `{4100, 500}` and harness process
-`{3000, 400}`; times are on 2026-10-30; and actors not described are all null with
-empty ancestry.
-
-### Scenario: Escape, runtime contact, impostor, and exfiltration
-
-- **GIVEN** `W`, `sbx-1`, and a suppression for `cloud-credentials`, executable `/usr/bin/restic`, uid 0
-- **WHEN** `e1` at `12:00:00Z`: process `{4242, 900}` with ancestry `[{4100, 500}, {3000, 400}, {1, 1}]` running `/usr/bin/python3` connects to `/run/runsc-debug.sock`; `e2` at `12:01:00Z`: `/usr/bin/restic` as uid 0 reads `/home/deploy/.aws/credentials`; `e3` at `12:02:00Z`: process `{5000, 1000}` with comm `restic`, running `/tmp/.x/restic` as uid 0 with ancestry `[{4100, 777}, {1, 1}]`, reads the same file; `e4` at `12:03:00Z`: process `{4100, 500}` opens it; `e5` at `12:05:00Z`: source `cloudtrail` reports `credential-use` of `test-access-key-id`
-- **THEN** the alerts are `e1/runtime-control` (`escape-confirmed`, `ancestry`, `sbx-1`, `["T1611"]`), `e3/cloud-credentials` (`host-breach`, because PID 4100 with other start ticks is a reused PID), `e4/cloud-credentials` (`runtime-mediated`, `runtime`, `sbx-1`), and `e5/cloud-credentials` (`credential-exfiltrated`, `["T1552.001", "T1078"]`)
-- **AND** `suppressed` lists only `e2`, and the incidents are `sbx-1` with `e1` and `e4`, then the unattributed incident with `e3` and `e5`
-
-### Scenario: Harness escape, identified passively
-
-- **GIVEN** `W`, `sbx-1`, and harness signatures `claude-code` (environment name `CLAUDECODE`, executable `claude`) and `aider` (environment name `AIDER_MODEL`, executable `aider`)
-- **WHEN** `h1` at `12:00:00Z`: process `{3100, 450}` with ancestry `[{3000, 400}, {1, 1}]`, running `/usr/bin/python3` with environment names `["CLAUDECODE", "HOME", "PATH"]`, reads `/home/deploy/.aws/credentials`; `h2` at `12:01:00Z`: process `{4300, 980}` with ancestry `[{4100, 500}, {3000, 400}, {1, 1}]` and environment names `["PATH"]` connects to `/run/runsc-debug.sock`
-- **THEN** `h1/cloud-credentials` is `harness-escape` with attribution `harness`, sandbox `sbx-1`, and harness `{"harness_id": "claude-code", "matched": ["env:CLAUDECODE"], "abstained": false}`
-- **AND** `h2/runtime-control` is `escape-confirmed` with attribution `ancestry`, because the runtime is the nearest ancestor, and its harness identification abstains
-
-### Scenario: Kernel-launched payload and tripwire write
-
-- **GIVEN** `W` and `sbx-1`
-- **WHEN** `k0`: a host process reads `/proc/sys/kernel/core_pattern`; `k1` at `12:00:00Z`: process `{6100, 950}` with ancestry `[{4100, 500}]` writes `/sys/fs/cgroup/rdma/release_agent`; `k2` at `12:00:05Z`: process `{7000, 1200}` running `/tmp/p` with ancestry `[{2, 3}]` reads `/home/deploy/.aws/credentials`
-- **THEN** `k0` is ignored, `k1/cgroup-release-agent` is `escape-confirmed` with attribution `ancestry`, and `k2/cloud-credentials` is `escape-confirmed` with attribution `kernel-helper` and a null sandbox
-
-### Scenario: Sandbox reaching for host SSH
-
-- **GIVEN** `W` and `sbx-1`
-- **WHEN** a flow sensor reports `g1` connecting to `172.17.0.1:22` with `actor.sandbox_id` `sbx-1`
-- **THEN** `g1/gateway-ssh` is `escape-attempt` with attribution `sensor` and techniques `["T1611", "T1021.004"]`
-
-### Scenario: Alias path and simultaneous alerts
-
-- **GIVEN** `W` and `sbx-1`
-- **WHEN** `a2` reads `/home/deploy/.aws/credentials`, and `a1`, with `actor.sandbox_id` `sbx-1`, connects to `/var/run/runsc-debug.sock`, both at `12:00:00Z`
-- **THEN** `a1/runtime-control` (attribution `sensor`) precedes `a2/cloud-credentials`, and the `sbx-1` incident precedes the unattributed incident
-
-### Scenario: Endpoint spelling and hard link
-
-- **GIVEN** the `watch` from the Kubernetes node plan and a decoy inode for `ssh-private-key` of device 2049, inode 1234
-- **WHEN** `n1` connects to `[::ffff:169.254.169.254]:80` and `n2` reads `/tmp/k` with target inode device 2049, inode 1234
-- **THEN** the alerts are `n1/metadata-endpoint` and `n2/ssh-private-key`, both `host-breach`
+instant, then `sandbox_id` by code point, with the unattributed incident last among
+equals. Timestamps are echoed exactly as received.
