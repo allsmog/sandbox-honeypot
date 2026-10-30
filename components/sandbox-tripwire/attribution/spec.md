@@ -24,8 +24,8 @@ Each alert is attributed by the first rule that applies:
    process descended from the runtime, the classic escape) and `harness` for a harness
    process (code the harness ran outside the sandbox). The nearest ancestor wins, so a
    process inside the runtime is never blamed on the harness that launched it.
-4. `kernel-helper`: some identity in `actor.ancestry` has PID 2, so the kernel launched
-   the lineage as a user-mode helper. Hijacked helpers (`release_agent`,
+4. `kernel-helper`: `actor.helper_depth` is not null, so the kernel started this
+   process or an ancestor as a user-mode helper. Hijacked helpers (`release_agent`,
    `core_pattern`, `modprobe`) are how many escapes run code as host root, and their
    payloads often fork. The sandbox is unknown.
 5. `sensor`: `actor.sandbox_id` names a sandbox in `sandboxes`.
@@ -42,7 +42,9 @@ Every alert has `severity` `critical`. The verdict is the first that applies:
 
 1. `credential-exfiltrated` for `credential-use`;
 2. `harness-escape` for attribution `harness`;
-3. `escape-attempt` for a `reachable` decoy with attribution `runtime` or `sensor`;
+3. `escape-attempt` for an endpoint decoy with attribution `runtime` or `sensor`: the
+   sandbox reached for a host endpoint, whether or not egress let the connection
+   through;
 4. `runtime-mediated` for attribution `runtime`;
 5. `escape-confirmed` for attribution `ancestry`, `kernel-helper`, or `sensor`;
 6. otherwise `host-breach`.
@@ -93,8 +95,8 @@ In these scenarios `W` is the `watch` from the gVisor cloud-VM plan in
 
 ### Scenario: Escape through kernel helpers
 
-- **GIVEN** `W`, `sbx-1`, and expected helpers `["/sbin/modprobe"]`
-- **WHEN** `k0`: a host process reads `/proc/sys/kernel/core_pattern`; `k1` at `12:00:00Z`: process `{6100, 950}` with ancestry `[{4100, 500}]` writes `/tmp/cgrp/release_agent` with target filesystem `{"type": "cgroup", "path": "release_agent"}`; `k2` at `12:00:05Z`: process `{7000, 1200}` with ancestry `[{2, 3}]` execs `/tmp/p`; `k3` at `12:00:06Z`: its child `{7001, 1210}` with ancestry `[{7000, 1200}, {2, 3}]` reads `/home/deploy/.aws/credentials`; `k4`: a process with ancestry `[{2, 3}]` execs `/sbin/modprobe`
+- **GIVEN** `W`, `sbx-1`, and expected helper `/sbin/modprobe` with digest `R`
+- **WHEN** `k0`: a host process reads `/proc/sys/kernel/core_pattern`; `k1` at `12:00:00Z`: process `{6100, 950}` with ancestry `[{4100, 500}]` writes `/tmp/cgrp/release_agent` with target filesystem `{"type": "cgroup", "path": "release_agent"}`; `k2` at `12:00:05Z`: process `{7000, 1200}` with helper depth 0 execs `/tmp/p`; `k3` at `12:00:06Z`: its child `{7001, 1210}` with helper depth 1 reads `/home/deploy/.aws/credentials`; `k4`: a process with helper depth 0 execs `/sbin/modprobe` with target digest `R`
 - **THEN** `k0` and `k4` are ignored; `k1/cgroup-release-agent` is `escape-confirmed` with attribution `ancestry` and sandbox `sbx-1`, although the write bypassed `/sys/fs/cgroup`; and `k2/helper-exec` and `k3/cloud-credentials` are `escape-confirmed` with attribution `kernel-helper` and a null sandbox
 
 ### Scenario: Sandbox reaching for host SSH

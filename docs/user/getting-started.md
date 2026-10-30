@@ -42,8 +42,8 @@ The application exposes one `run` entrypoint that takes a single JSON object.
 
    ```json
    {"operation": "plan", "deployment_id": "prod-agents-host-17", "runtime": "gvisor",
-    "host_profile": "linux-host", "metadata_service": true,
-    "context": {"organization": "acme", "dormant_user": "deploy",
+    "host_profile": "linux-host", "metadata_service": true, "include": [],
+    "context": {"organization": "acme", "host_name": "ci-17", "dormant_user": "deploy",
                 "aws_region": "us-east-1", "cluster_name": null, "api_server": null},
     "sandbox_gateway": "172.17.0.1",
     "exposure": {"paths": ["/srv/agents"], "endpoints": ["*:443"]},
@@ -78,7 +78,8 @@ The application exposes one `run` entrypoint that takes a single JSON object.
    does not do this for you.
 
 4. **Evaluate events** off the host, with sensor keys in
-   `SANDBOX_HONEYPOT_SENSOR_KEYS`. Send `watch`, each sandbox's runtime and agent
+   `SANDBOX_HONEYPOT_SENSOR_KEYS`. Declare every sensor source (who signs it, how long it may be silent or late).
+   Send `watch`, each sandbox's runtime and agent
    harness process identities (PID and start ticks), signatures of the harnesses you
    run, maintenance suppressions (by executable and uid),
    the prober, which decoys two sensors must confirm, an observation window, decoy

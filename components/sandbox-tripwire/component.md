@@ -87,7 +87,8 @@ The tripwire's value depends on these properties:
    and never sits where a real account's tools would use it.
 3. Decoy credentials are real in format, and the ones that need it are real
    credentials, so their use is actually logged, before and after rotation.
-4. Every decoy contact that is not trusted maintenance or self-testing is critical.
+4. Every contact with a planted decoy, hijack-shaped kernel-interface write, and
+   unexpected kernel helper that is not trusted maintenance or self-testing is critical.
 5. The attacker cannot tell that they touched a decoy: decoys behave like real
    assets, observation is passive, and nothing on the host reacts to the contact.
 6. Escapes that never touch bait are still seen: writes to kernel interfaces that
@@ -123,6 +124,7 @@ decoys. It assumes:
   or kernel write access can stop sensors, steal their keys, or forge events
   afterwards, so only events recorded before that point are trustworthy; probes,
   silence, sequences, and corroboration make later tampering visible, not impossible.
+  A source whose events the collector signs is trusted to the collector's level.
 - Suppressed executables and the probe are trusted like the host's own maintenance:
   an attacker who can run them with chosen arguments can read decoys without an
   alert. Keep suppressions few and bound to an executable digest, user, and, for
@@ -150,9 +152,15 @@ events, and hits in `evaluation/spec.md`; attribution and verdicts in
 `stealth/spec.md`.
 
 Every object in a request is strict: unknown fields, missing required fields, and
-values of the wrong type are invalid. Fields are validated in the order this
-specification lists them, depth first, arrays in index order; the first failure is
-reported. Identifier strings (`deployment_id`, `sandbox_id`, `event_id`, `source`,
+values of the wrong type are invalid. Validation runs in two phases and reports the
+first failure. First, each field is checked on its own, in the order this
+specification lists it, depth first, arrays in index order. Then cross-field rules are
+checked in this order, each reported at the field named: a decoy named twice in one
+list (the later entry's `decoy_id`); a reference to an unknown or ineligible decoy
+(that `decoy_id`); missing `context` values a decoy requires (`/context/cluster_name`,
+then `/context/api_server`); an invalid alias set (the first offending entry's `alias`
+or `target`); a collision (the later item's `location` or `path`); and a repeated
+digest (the later digest field). Identifier strings (`deployment_id`, `sandbox_id`, `event_id`, `source`,
 `sensor_instance`, `harness_id`) MUST be nonempty. Strings are compared and sorted by
 Unicode code point. Integers MUST lie between 0 and 2^53 − 1 unless stated. A
 timestamp is `YYYY-MM-DDTHH:MM:SS`, optionally `.` and 1 to 9 digits, then `Z`, with
@@ -193,18 +201,21 @@ fixed executable digest. Decoy credentials appear only as identifiers derived fr
 
 Unstated values default as follows. Lists are empty. `probe`, `corroboration`,
 `carry`, `sandbox_gateway`, and every event detail field are null, and `ancestry` is
-empty. `authentication` is `off` and `max_clock_skew_seconds` is 300. `window` is
+empty. `sources` declares every source the scenario's events use, signed by the
+sensor (by the collector for `cloudtrail`), with null maximum silence and a maximum
+delay of 300 seconds. `authentication` is `off` and `max_clock_skew_seconds` is 300. `window` is
 `2026-10-30T00:00:00Z` to `2026-10-31T00:00:00Z`; times without a date are on
 2026-10-30; an event's `time` is `12:00:00Z`, `received` equals its `time`,
-`deployment_id` equals the watch's, `source` is `fanotify`, and `sensor_instance` is
-`boot-1`. `context` is organization `acme`, dormant user `deploy`, AWS region
-`us-east-1`, and, when a `kubeconfig-token` decoy is included, cluster `prod-east` with
+`deployment_id` equals the watch's, `source` is `ebpf`, `sensor_instance` is `boot-1`,
+sequences number each source and instance's events 1, 2, … in index order, and
+unnamed events have IDs `u0`, `u1`, … by index. `context` is organization `acme`, host
+name `ci-17`, dormant user `deploy`, AWS region `us-east-1`, and, when a `kubeconfig-token` decoy is included, cluster `prod-east` with
 API server `10.0.0.1:6443` (otherwise null).
 
 ### Requirement: Detection is invisible to the attacker
 
-The tripwire SHALL treat every interaction with a decoy as a hit, so an attacker cannot
-safely inspect a decoy, and decoy contact SHALL change nothing the attacker can observe
+The tripwire SHALL treat every interaction with a planted decoy or its companions as a
+hit, so an attacker cannot safely inspect one, and decoy contact SHALL change nothing the attacker can observe
 (`stealth/spec.md`).
 
 #### Scenario: Metadata reconnaissance
