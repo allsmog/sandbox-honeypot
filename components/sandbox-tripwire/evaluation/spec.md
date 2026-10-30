@@ -142,7 +142,9 @@ An event with an invalid core field is **rejected** and recorded at the first in
 field. An event with a valid core but an invalid detail field is evaluated with that
 field treated as null (`actor` fields individually; `ancestry` as empty) and recorded
 in `repaired`, so a crafted file name or environment cannot turn an attacker's own hit
-into a rejection. An unknown event field is dropped and recorded in `repaired` the same way. A repeated object key makes
+into a rejection. An unknown field at any depth of an event is dropped and recorded in `repaired` at its
+own pointer, and a missing detail field or `actor` member is treated as null and
+recorded at the pointer it would have. A repeated object key makes
 the request invalid at that object, except inside an element of `events`, where it
 rejects that event at that object, so one forged event cannot void a batch. Accepted events sharing an `event_id` are all evaluated; the ID is listed in
 `duplicate_event_ids`, and each of their alert IDs gains `#` and the event's index.

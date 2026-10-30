@@ -82,7 +82,8 @@ flowchart LR
 The tripwire's value depends on these properties:
 
 1. A decoy is never placed where a sandbox can legitimately reach it, through a host
-   path, a path alias, or allowed egress, so ordinary workloads cannot trip it.
+   path, a path alias, or allowed egress (other than the boundary decoy), so ordinary
+   workloads cannot trip it.
 2. A decoy never displaces a real host asset, real service, or runtime-managed state,
    and never sits where a real account's tools would use it.
 3. Decoy credentials are real in format, and the ones that need it are real
@@ -168,7 +169,9 @@ events, and hits in `evaluation/spec.md`; attribution and verdicts in
 Every object in a request is strict: unknown fields, missing required fields, and
 values of the wrong type are invalid. Validation runs in two phases and reports the
 first failure. First, each field is checked on its own, in the order this
-specification lists it, depth first, arrays in index order. Then cross-field rules are
+specification lists it, depth first, arrays in index order; within each object,
+unknown fields are checked after the listed ones, in key order. A missing field is
+reported at the pointer it would have. Then cross-field rules are
 checked in this order, each reported at the field named:
 
 1. For `plan`, the seed is absent, given both in the request and the environment, or
@@ -213,7 +216,8 @@ checked in this order, each reported at the field named:
 
 Identifier strings (`deployment_id`, `sandbox_id`, `event_id`, `source`,
 `sensor_instance`, `harness_id`) MUST be nonempty. Strings are compared and sorted by
-Unicode code point. Integers are JSON numbers without a fraction or exponent and MUST
+Unicode code point. Integers are JSON numbers with an integral value, however written (`7`, `7.0`, and
+`7e0` are the same integer, as RFC 8785 serializes them), and MUST
 lie between 0 and 2^53 − 1 unless stated. A
 timestamp is `YYYY-MM-DDTHH:MM:SS`, optionally `.` and 1 to 9 digits, then `Z`, with
 seconds from 00 to 59; timestamps are compared by the instant they denote.

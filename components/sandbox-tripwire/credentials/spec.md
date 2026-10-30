@@ -48,7 +48,7 @@ A derived decoy's epoch defaults to 0; `epochs` (objects with exactly `decoy_id`
 naming an included derived-credential decoy, and `epoch`, an integer from 0 to 255)
 overrides it, rotating that decoy alone. A credential stolen before a rotation, or
 from a decoy a later plan no longer places, is still a canary, so it stays watched.
-`watch.retired` lists, in decoy order: for each included derived decoy with epoch `e`,
+`watch.retired` lists, in one pass over decoys in decoy order: for each included derived decoy with epoch `e`,
 the digests of epochs 0 to `e - 1`, and also of epoch `e` when the decoy is not placed;
 for each included `aws-access-key` decoy that is not placed, its provided digest; then
 each `retired_canaries` entry (objects with exactly `decoy_id`, `technique`, and
